@@ -3,8 +3,8 @@
   "season": "2026-27",
   "season_type": "Regular Season",
   "data_source": "espn",
-  "generated_at": "2026-11-17T00:32:06+00:00",
-  "generated_at_taipei": "2026-11-17T08:32:06+08:00",
+  "generated_at": "2026-11-17T00:35:23+00:00",
+  "generated_at_taipei": "2026-11-17T08:35:23+08:00",
   "league": {
     "avg_off_rating": 100.0,
     "avg_def_rating": 100.02,
@@ -21,7 +21,6 @@
     "recent_games_window": 10
   },
   "warnings": [
-    "nba_api 球季數據失敗，已改用 ESPN 備援：LeagueDashTeamStats 連續 3 次失敗：DLL load failed while importing _common: 應用程式控制原則已封鎖此檔案。",
     "資料來源：ESPN 備援（stats.nba.com 不可用）；ORtg / DRtg / Pace 為逐場比分換算的代理值。"
   ],
   "teams": {
