@@ -1,0 +1,38 @@
+name: Probe data sources
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe NBA and ESPN endpoints
+        run: |
+          set -uo pipefail
+          probe() {
+            local label="$1"; shift
+            out=$(curl -sS -o /tmp/body --max-time 30 -w "%{http_code} %{time_total}s %{size_download}B" "$@" 2>/tmp/err || true)
+            echo "== ${label}: ${out:-curl-failed}"
+            if [ -s /tmp/err ]; then echo "   err: $(tr -d '\n' < /tmp/err)"; fi
+            if [ -s /tmp/body ]; then echo "   body: $(head -c 240 /tmp/body | tr -d '\n')"; fi
+            echo
+          }
+          NBA_HEADERS=(
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            -H "Accept: application/json, text/plain, */*"
+            -H "Accept-Language: en-US,en;q=0.9"
+            -H "Origin: https://www.nba.com"
+            -H "Referer: https://www.nba.com/"
+          )
+          probe "stats.nba.com root" "${NBA_HEADERS[@]}" "https://stats.nba.com/"
+          probe "stats.nba.com leaguedashteamstats" "${NBA_HEADERS[@]}" "https://stats.nba.com/stats/leaguedashteamstats?Conference=&DateFrom=&DateTo=&Division=&GameScope=&GameSegment=&Height=&LastNGames=0&LeagueID=00&Location=&MeasureType=Advanced&Month=0&OpponentTeamID=0&Outcome=&PORound=0&PaceAdjust=N&PerMode=PerGame&Period=0&PlayerExperience=&PlayerPosition=&PlusMinus=N&Rank=N&Season=2025-26&SeasonSegment=&SeasonType=Regular%20Season&ShotClockRange=&StarterBench=&TeamID=0&TwoWay=0&VsConference=&VsDivision=&Weight="
+          probe "cdn.nba.com scheduleLeagueV2" "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
+          probe "cdn.nba.com todaysScoreboard" "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json"
+          probe "espn scoreboard" "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=20261117"
+          probe "espn team stats" "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/statistics/team?region=us&lang=en&contentorigin=espn&isqualified=true"
+          probe "espn core teams" "https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/seasons/2026/types/2/groups/2/teams?limit=40"
