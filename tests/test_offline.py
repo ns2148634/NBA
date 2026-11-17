@@ -14,7 +14,7 @@ from datetime import date, datetime
 from pathlib import Path
 from unittest import mock
 
-from src import config, fetch_injuries, fetch_stats, rating_engine
+from src import config, fetch_espn, fetch_injuries, fetch_stats, rating_engine
 from src import main as main_module
 
 
@@ -706,6 +706,287 @@ class MainFlowTests(unittest.TestCase):
             history = rating_engine.read_history(history_path)
             self.assertEqual(len(history), 1)
             self.assertEqual(history[0]["game_id"], "0022600999")
+
+
+def _espn_team(abbreviation: str) -> dict:
+    return {
+        "id": "999",
+        "abbreviation": abbreviation,
+        "displayName": config.team_display_name(abbreviation),
+    }
+
+
+def _espn_event(
+    game_id: str,
+    date_utc: str,
+    away: str,
+    home: str,
+    away_score: float | None = None,
+    home_score: float | None = None,
+    state: str = "pre",
+    season_type_name: str | None = None,
+):
+    competitors = [
+        {
+            "homeAway": "home",
+            "order": 0,
+            "team": _espn_team(home),
+            "score": {"value": home_score} if home_score is not None else None,
+        },
+        {
+            "homeAway": "away",
+            "order": 1,
+            "team": _espn_team(away),
+            "score": {"value": away_score} if away_score is not None else None,
+        },
+    ]
+    event = {
+        "id": game_id,
+        "date": date_utc,
+        "season": {"year": 2027, "type": 2},
+        "competitions": [
+            {
+                "date": date_utc,
+                "neutralSite": False,
+                "venue": {"fullName": "TD Garden"},
+                "status": {
+                    "type": {
+                        "state": state,
+                        "completed": state == "post",
+                        "detail": "Final" if state == "post" else "7:30 PM ET",
+                    }
+                },
+                "competitors": competitors,
+            }
+        ],
+    }
+    if season_type_name:
+        event["seasonType"] = {"name": season_type_name}
+    return event
+
+
+def _espn_games_by_team() -> dict:
+    first = fetch_espn.normalize_event(
+        _espn_event("401", "2026-11-02T00:30Z", "NYK", "BOS", 100, 110, state="post"),
+        config.SEASON_TYPE,
+    )
+    second = fetch_espn.normalize_event(
+        _espn_event("402", "2026-11-04T00:30Z", "BOS", "NYK", 105, 95, state="post"),
+        config.SEASON_TYPE,
+    )
+    return {"BOS": [first, second], "NYK": [first, second]}
+
+
+class EspnFallbackTests(unittest.TestCase):
+    def test_abbreviation_aliases_resolve_to_official_codes(self) -> None:
+        pairs = {
+            "NY": "NYK",
+            "GS": "GSW",
+            "NO": "NOP",
+            "SA": "SAS",
+            "WSH": "WAS",
+            "UTAH": "UTA",
+            "BOS": "BOS",
+        }
+        for espn_abbrev, official in pairs.items():
+            self.assertEqual(
+                fetch_espn._resolve_team({"abbreviation": espn_abbrev}), official
+            )
+        self.assertEqual(
+            fetch_espn._resolve_team({"displayName": "Golden State Warriors"}), "GSW"
+        )
+        self.assertIsNone(fetch_espn._resolve_team({"abbreviation": "XYZ"}))
+
+    def test_season_year_uses_end_year(self) -> None:
+        self.assertEqual(fetch_espn.espn_season_year("2026-27"), 2027)
+
+    def test_normalize_event_converts_to_et_and_drops_unknown_scores(self) -> None:
+        event = _espn_event("401", "2026-11-18T00:30Z", "NYK", "BOS", 0, 0, state="pre")
+        game = fetch_espn.normalize_event(event, config.SEASON_TYPE)
+        self.assertIsNotNone(game)
+        self.assertEqual(game["home_team"], "BOS")
+        self.assertEqual(game["away_team"], "NYK")
+        self.assertEqual(game["game_date"], "2026-11-17")
+        self.assertEqual(game["game_time_et"], "19:30")
+        self.assertEqual(game["status"], 1)
+        self.assertIsNone(game["home_score"])
+        self.assertIsNone(game["away_score"])
+
+    def test_normalize_event_keeps_final_scores_and_filters_preseason(self) -> None:
+        event = _espn_event(
+            "401",
+            "2026-11-18T00:30Z",
+            "NYK",
+            "BOS",
+            100,
+            110,
+            state="post",
+            season_type_name="Regular Season",
+        )
+        game = fetch_espn.normalize_event(event, config.SEASON_TYPE)
+        self.assertEqual(game["status"], 3)
+        self.assertEqual(game["home_score"], 110.0)
+        self.assertEqual(game["away_score"], 100.0)
+
+        preseason = _espn_event(
+            "900",
+            "2026-10-06T23:00Z",
+            "NYK",
+            "BOS",
+            90,
+            95,
+            state="post",
+            season_type_name="Preseason",
+        )
+        self.assertIsNone(fetch_espn.normalize_event(preseason, config.SEASON_TYPE))
+
+    def test_build_team_stats_computes_proxy_ratings(self) -> None:
+        teams, league = fetch_espn.build_team_stats(_espn_games_by_team())
+        self.assertEqual(teams["BOS"]["games_played"], 2)
+        self.assertEqual(teams["BOS"]["wins"], 2)
+        self.assertEqual(teams["BOS"]["losses"], 0)
+        self.assertEqual(teams["NYK"]["wins"], 0)
+        self.assertAlmostEqual(teams["BOS"]["season"]["off_rating"], 104.878, places=3)
+        self.assertAlmostEqual(teams["BOS"]["season"]["def_rating"], 95.122, places=3)
+        self.assertGreater(teams["BOS"]["season"]["net_rating"], 0)
+        self.assertLess(teams["NYK"]["season"]["net_rating"], 0)
+        self.assertEqual(teams["BOS"]["recent"]["games"], 2)
+        # pace 代理值 = 聯盟平均每隊每場得分
+        self.assertAlmostEqual(league["avg_pace"], 102.5, places=3)
+        self.assertAlmostEqual(league["avg_net_rating"], 0.0, places=3)
+
+    def test_build_game_log_deduplicates_shared_games(self) -> None:
+        log = fetch_espn.build_game_log(_espn_games_by_team())
+        self.assertEqual(len(log), 4)  # 2 場 × 2 隊
+        self.assertEqual(
+            sorted(row["team_abbrev"] for row in log), ["BOS", "BOS", "NYK", "NYK"]
+        )
+        bos_rows = [row for row in log if row["team_abbrev"] == "BOS"]
+        self.assertEqual(bos_rows[0]["plus_minus"], 10.0)
+        self.assertEqual(bos_rows[0]["wl"], "W")
+        self.assertEqual(bos_rows[0]["team_id"], config.TEAM_BY_ABBREV["BOS"]["id"])
+
+    def test_annotate_rest_days_marks_back_to_back(self) -> None:
+        games_by_team = _espn_games_by_team()
+        rested = [
+            {
+                "game_id": "403",
+                "game_date": "2026-11-06",
+                "home_team": "BOS",
+                "away_team": "NYK",
+            }
+        ]
+        fetch_espn.annotate_rest_days(rested, games_by_team)
+        # 前兩場 ET 日期為 11-01 與 11-03；11-06 開打代表休 2 天
+        self.assertEqual(rested[0]["home_rest_days"], 2)
+        self.assertFalse(rested[0]["home_b2b"])
+
+        back_to_back = [
+            {
+                "game_id": "404",
+                "game_date": "2026-11-04",
+                "home_team": "BOS",
+                "away_team": "NYK",
+            }
+        ]
+        fetch_espn.annotate_rest_days(back_to_back, games_by_team)
+        self.assertEqual(back_to_back[0]["away_rest_days"], 0)
+        self.assertTrue(back_to_back[0]["away_b2b"])
+
+    def test_fetch_all_team_stats_uses_espn_when_nba_api_unavailable(self) -> None:
+        payload = {
+            "source": "espn",
+            "season": "2026-27",
+            "season_type": config.SEASON_TYPE,
+            "teams": {},
+            "league": {},
+            "game_log": [],
+            "warnings": [],
+        }
+        with mock.patch.object(
+            fetch_stats, "nba_api_available", return_value=False
+        ), mock.patch.object(
+            fetch_espn, "fetch_all_team_stats", return_value=payload
+        ) as espn_mock:
+            result = fetch_stats.fetch_all_team_stats("2026-27")
+        self.assertIs(result, payload)
+        espn_mock.assert_called_once_with("2026-27", config.SEASON_TYPE)
+
+    def test_fetch_all_team_stats_falls_back_when_nba_api_raises(self) -> None:
+        payload = {
+            "source": "espn",
+            "season": "2026-27",
+            "season_type": config.SEASON_TYPE,
+            "teams": {},
+            "league": {},
+            "game_log": [],
+            "warnings": [],
+        }
+        with mock.patch.object(
+            fetch_stats, "nba_api_available", return_value=True
+        ), mock.patch.object(
+            fetch_stats,
+            "_fetch_all_team_stats_nba",
+            side_effect=fetch_stats.StatsFetchError("boom"),
+        ), mock.patch.object(
+            fetch_espn, "fetch_all_team_stats", return_value=payload
+        ):
+            result = fetch_stats.fetch_all_team_stats("2026-27")
+        self.assertEqual(result["source"], "espn")
+        self.assertIn("nba_api 球季數據失敗", result["warnings"][0])
+
+    def test_fetch_games_for_date_uses_espn_when_nba_unavailable(self) -> None:
+        game = {
+            "game_id": "401",
+            "game_date": "2026-11-17",
+            "home_team": "BOS",
+            "away_team": "NYK",
+        }
+        with mock.patch.object(
+            fetch_stats, "nba_api_available", return_value=False
+        ), mock.patch.object(
+            fetch_espn, "fetch_games_for_date", return_value=[game]
+        ) as espn_mock:
+            payload = fetch_stats.fetch_games_for_date("2026-27", date(2026, 11, 17))
+        self.assertEqual(payload["games"], [game])
+        self.assertTrue(any("ESPN" in warning for warning in payload["warnings"]))
+        espn_mock.assert_called_once_with(
+            "2026-27", date(2026, 11, 17), config.SEASON_TYPE
+        )
+
+    def test_espn_payload_produces_sane_ratings_and_predictions(self) -> None:
+        games_by_team = _espn_games_by_team()
+        teams, league = fetch_espn.build_team_stats(games_by_team)
+        stats_payload = {
+            "source": "espn",
+            "season": "2026-27",
+            "season_type": config.SEASON_TYPE,
+            "teams": teams,
+            "league": league,
+            "game_log": fetch_espn.build_game_log(games_by_team),
+            "warnings": [],
+        }
+        ratings = rating_engine.compute_team_ratings(stats_payload)
+        self.assertEqual(ratings["data_source"], "espn")
+        self.assertGreater(ratings["teams"]["BOS"]["base_rating"], 50.0)
+        self.assertLess(ratings["teams"]["NYK"]["base_rating"], 50.0)
+
+        prediction = rating_engine.predict_game(
+            {
+                "game_id": "403",
+                "game_date": "2026-11-17",
+                "game_time_et": "19:30",
+                "home_team": "BOS",
+                "away_team": "NYK",
+                "is_neutral": False,
+                "status": 1,
+            },
+            ratings,
+        )
+        self.assertIsNotNone(prediction)
+        self.assertEqual(prediction["predicted_winner"], "BOS")
+        self.assertGreater(prediction["predicted_total"], config.TOTAL_MIN)
+        self.assertLess(prediction["predicted_total"], config.TOTAL_MAX)
 
 
 if __name__ == "__main__":

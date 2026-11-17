@@ -265,6 +265,7 @@ def compute_team_ratings(stats_payload: dict) -> dict:
         "schema_version": config.SCHEMA_VERSION,
         "season": season,
         "season_type": season_type,
+        "data_source": stats_payload.get("source") or "nba_api",
         "generated_at": config.to_iso(generated_at),
         "generated_at_taipei": config.to_taipei_iso(generated_at),
         "league": {
@@ -637,6 +638,7 @@ def build_predictions(
     return {
         "schema_version": config.SCHEMA_VERSION,
         "season": season or team_ratings.get("season"),
+        "data_source": team_ratings.get("data_source"),
         "game_date": target_date.isoformat()
         if isinstance(target_date, date)
         else target_date,

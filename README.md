@@ -2,7 +2,7 @@
 
 以「不架資料庫、只靠 JSON/CSV + GitHub Actions」為前提打造的 NBA 預測系統：
 
-1. 用 [`nba_api`](https://github.com/swar/nba_api) 抓取 30 隊球季／近 10 場進階數據與逐場比分。
+1. 用 [`nba_api`](https://github.com/swar/nba_api) 抓取 30 隊球季／近 10 場進階數據與逐場比分；若 `stats.nba.com` 不可用（雲端 CI 常被 Akamai 封鎖），自動改用 ESPN 公開 API 備援。
 2. 計算 0–100 制的**基礎戰力分**（50 = 聯盟平均，分數差 ≈ 預期分差）。
 3. 用 [`nbainjuries`](https://github.com/maobvious/nbainjuries) 抓取當日官方傷病報告，換算**傷病扣分**。
 4. 產出當日每場比賽的**勝負、比分、勝率、總分**預測，寫入 `data/`。
@@ -18,7 +18,8 @@
 NBA/
 ├─ .github/workflows/
 │  ├─ update_base_rating.yml      # 排程 A：每天更新基礎戰力分
-│  └─ daily_prediction.yml        # 排程 B：抓傷病 + 產生當日預測
+│  ├─ daily_prediction.yml        # 排程 B：抓傷病 + 產生當日預測
+│  └─ probe_sources.yml           # 手動診斷：印出各資料來源的可用性
 ├─ data/                          # 會被 GitHub Actions commit 的產出
 │  ├─ team_ratings.json           # 30 隊基礎戰力分
 │  ├─ daily_predictions.json      # 當日預測（每日覆寫）
@@ -26,13 +27,14 @@ NBA/
 ├─ src/
 │  ├─ __init__.py
 │  ├─ config.py                   # 參數、30 隊對照表、時區、路徑
-│  ├─ fetch_stats.py              # nba_api 抓取層（快取 / 重試 / 正規化）
+│  ├─ fetch_stats.py              # nba_api 抓取層（快取 / 重試 / 正規化 / ESPN 備援切換）
+│  ├─ fetch_espn.py               # ESPN 公開 API 備援（當日賽程 + 逐場比分換算）
 │  ├─ fetch_injuries.py           # nbainjuries 抓取層（15 分鐘粒度探測）
 │  ├─ rating_engine.py            # 評分、傷病扣分、預測、JSON/CSV IO
 │  └─ main.py                     # CLI 入口（base / predict / both / settle）
 ├─ tests/
 │  ├─ __init__.py
-│  └─ test_offline.py             # 22 個離線測試（合成資料，不需網路）
+│  └─ test_offline.py             # 33 個離線測試（合成資料，不需網路）
 ├─ requirements.txt
 └─ README.md
 ```
@@ -77,6 +79,39 @@ python -m src.main --mode settle
 * `0`：成功；或「當天沒有比賽 / 傷病報告不可用 / 賽程暫時失效」等可容忍情況（會留下 warning）。
 * `1`：資料抓取失敗且無法產出結果（例如沒有任何可用戰力分，且 nba_api 也失效）。
 * `2`：參數錯誤（例如日期格式不對）。
+
+### 資料來源與備援（ESPN fallback）
+
+系統會依下列順序取資料，並把實際來源寫進輸出的 `data_source` 欄位：
+
+1. **nba_api（`stats.nba.com`）**：首選來源，提供真實的 `ORtg / DRtg / Pace`。
+2. **ESPN 公開 API（`site.api.espn.com`）**：自動備援，提供當日賽程與 30 隊逐場比分。
+
+切換時機會由 `fetch_stats.nba_api_available()` 判斷（單一 process 內快取 30 分鐘）：
+
+* 以 12 秒 timeout 探測一次；本機／雲端的 `stats.nba.com` API 路徑若被 Akamai 封鎖
+  （常見表現是 TCP 可連、API 回 0 bytes timeout），直接改走 ESPN，不會浪費 3 次 60 秒重試。
+* 先確認 `pandas` 可 import；若系統政策封鎖 numpy DLL（Windows 常見），同樣直接走 ESPN。
+* 執行途中若出現環境層級錯誤（`ImportError` / `DLL load failed`），立即標記來源不可用並切換。
+
+ESPN 備援的計算方式（`src/fetch_espn.py`）：
+
+| 項目 | 做法 |
+| --- | --- |
+| 當日賽程 | `scoreboard?dates=YYYYMMDD`，轉成 ET 日期／時間、狀態碼 1/2/3、比分 |
+| 球季數據 | 逐隊 `teams/{id}/schedule?season=2027`（30 次請求，6 小時快取） |
+| 休息天數 / B2B | 由逐場賽程自行比對前一場日期 |
+| `pace`（代理） | 聯盟平均「每隊每場得分」（約 113–114） |
+| `off_rating` / `def_rating`（代理） | `100 × 每場得分 ÷ pace`、`100 × 每場失分 ÷ pace` |
+| 近 10 場 | 各隊最近 10 場得分／失分，用同一基準換算 |
+
+因為 ESPN 沒有回合數，`ORtg / DRtg / Pace` 是**代理值**，`warnings` 會明確標示；
+但「分差 ↔ 每 100 回合」的換算前後一致，所以 `base_rating`、預測比分與總分仍然可用。
+
+想強制停用備援（例如要確認 nba_api 是否真的可用），把 `src/config.py` 的
+`ESPN_FALLBACK_ENABLED` 設為 `False` 即可。需要診斷網路時，可手動執行
+`Actions → Probe data sources → Run workflow`，它會列出 `stats.nba.com`、
+`cdn.nba.com`、ESPN 各端點的 HTTP 狀態碼。
 
 ---
 
@@ -165,6 +200,7 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
   "schema_version": 1,
   "season": "2026-27",
   "season_type": "Regular Season",
+  "data_source": "nba_api",
   "generated_at": "2026-11-17T07:00:12+00:00",
   "generated_at_taipei": "2026-11-17T15:00:12+08:00",
   "league": {
@@ -218,6 +254,7 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 {
   "schema_version": 1,
   "season": "2026-27",
+  "data_source": "nba_api",
   "game_date": "2026-11-17",
   "generated_at": "2026-11-17T22:31:05+00:00",
   "generated_at_taipei": "2026-11-18T06:31:05+08:00",
@@ -334,7 +371,7 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 python -m unittest discover -s tests -t . -v
 ```
 
-22 個離線測試（不需網路、不需 pandas）涵蓋：
+33 個離線測試（不需網路、不需 pandas）涵蓋：
 
 * EMA、收縮、25–75 夾限、`base_rating = 50 + expected_margin`
 * 傷病影響佔比、姓名正規化與同姓球員比對、狀態嚴重度、12 分上限
@@ -342,6 +379,7 @@ python -m unittest discover -s tests -t . -v
 * 主場優勢、B2B、休息補償、傷病對分差與總分的影響
 * 預測總分區間、比分加總與分差一致性、勝率範圍與加總
 * 賽程正規化（UTC → ET）、熱身賽過濾、休息天數、`ScoreboardV3` 備援欄位
+* ESPN 備援：縮寫別名對照（`NY/GS/NO/SA/WSH`）、賽事正規化、`pace` 代理換算、逐場 log 去重、休息天數、自動切換與警告
 * `history_log.csv` upsert 冪等性、賽果回填、重跑不覆蓋賽果
 
 ---
@@ -351,5 +389,6 @@ python -m unittest discover -s tests -t . -v
 * **日期以美東時間（ET）為準**：`--date` 與 `game_date` 都是 ET；台北時間請自行 +13 小時（夏令時 +12）。
 * Windows 需要 `tzdata`（已列入 `requirements.txt`）。若系統缺少時區資料，程式會退回固定 UTC 位移，但跨日光節約時間可能不準。
 * `stats.nba.com` 有速率限制：內建 3 次重試與 5/10 秒退避；API 回應快取 6 小時（`.cache/`）。
+* `stats.nba.com` 若被 Akamai 封鎖（GitHub Actions 常見），系統會自動改用 ESPN 備援，並在 `data_source` 標成 `espn`；此時 `ORtg / DRtg / Pace` 是逐場比分換算的代理值。
 * `ScoreboardV3` 備援依賴 `gameCode`（`YYYYMMDD/AWAYHOME`）判斷主客；若官方格式變動，會退回 `line_score` 的「客隊在前、主隊在後」順序。
 * 若在本機 Windows 看到 `DLL load failed while importing _common: 應用程式控制原則已封鎖此檔案`，代表系統的應用程式控制（WDAC / Smart App Control）封鎖了 numpy 的 DLL；此為環境限制，請改用 GitHub Actions（Ubuntu）或調整系統政策。本專案的核心模組與測試不依賴 pandas，可在受限環境下正常執行。

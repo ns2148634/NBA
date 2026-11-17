@@ -297,6 +297,16 @@ INJURY_HTTP_HEADERS = {
 ENABLE_CACHE = True
 CACHE_TTL_HOURS = 6
 
+#: stats.nba.com 可用性探測：GitHub Actions 的雲端 IP 常被 Akamai 封鎖，
+#: 因此先用短 timeout 探測，失敗就整趟改用 ESPN 備援，避免 3 次 60 秒的等待。
+SOURCE_PROBE_TIMEOUT = 12
+#: 來源健康狀態在記憶體中的快取秒數（單一 process 內有效）
+SOURCE_HEALTH_TTL_SECONDS = 1800
+#: stats.nba.com 不可用時是否改用 ESPN 公開 API 備援
+ESPN_FALLBACK_ENABLED = True
+#: ESPN 備援缺少 ORtg/DRtg/Pace，改用「聯盟平均每隊每場得分」作為換算基準
+ESPN_FALLBACK_PACE = 114.0
+
 #: 預設 log 等級（可被 --log-level 覆寫）
 LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"

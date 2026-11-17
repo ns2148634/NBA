@@ -156,6 +156,7 @@ def run_base(args: argparse.Namespace, season: str) -> dict:
     ratings = rating_engine.compute_team_ratings(stats_payload)
     if not ratings.get("teams"):
         raise fetch_stats.StatsFetchError("戰力分計算結果為空，請確認賽季參數。")
+    LOGGER.info("資料來源：%s", ratings.get("data_source") or "nba_api")
 
     if args.dry_run:
         LOGGER.info("--dry-run：不寫入 %s", config.TEAM_RATINGS_PATH)
@@ -175,9 +176,10 @@ def load_or_refresh_ratings(args: argparse.Namespace, season: str) -> dict:
         same_season = ratings.get("season") == season
         if same_season and age is not None and age <= config.RATING_MAX_AGE_HOURS:
             LOGGER.info(
-                "沿用既有戰力分（產生於 %s，距今 %.1f 小時）",
+                "沿用既有戰力分（產生於 %s，距今 %.1f 小時，資料來源 %s）",
                 ratings.get("generated_at"),
                 age,
+                ratings.get("data_source") or "未知",
             )
             return ratings
         LOGGER.info(

@@ -22,7 +22,7 @@ import time
 from datetime import date, datetime, timezone
 from typing import Any, Callable
 
-from . import config
+from . import config, fetch_espn
 
 LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +50,63 @@ def _endpoint(name: str):
             f"目前的 nba_api 版本不支援 {name} 端點，請升級 nba_api。"
         )
     return endpoint
+
+
+# --------------------------------------------------------------------------
+# 資料來源健康狀態（stats.nba.com 在雲端 CI 常被封鎖）
+# --------------------------------------------------------------------------
+_SOURCE_HEALTH: dict[str, Any] = {"checked_at": 0.0, "available": None}
+
+
+def nba_api_available(force: bool = False) -> bool:
+    """以短 timeout 探測 stats.nba.com 是否可用（結果在 process 內快取）。
+
+    雲端 IP（例如 GitHub Actions）常被 Akamai 封鎖：TCP 可連線，但 API 路徑
+    會 0 bytes timeout。若照原本 3 次 60 秒重試會浪費好幾分鐘，因此先探測一次，
+    失敗就整趟改用 ESPN 備援。
+    """
+    if not force and _SOURCE_HEALTH["available"] is not None:
+        elapsed = time.time() - float(_SOURCE_HEALTH["checked_at"] or 0.0)
+        if elapsed < config.SOURCE_HEALTH_TTL_SECONDS:
+            return bool(_SOURCE_HEALTH["available"])
+
+    available = False
+    try:
+        importlib.import_module("pandas")  # nba_api 解析資料必需
+        endpoint = _endpoint("ScoreboardV3")
+        endpoint(
+            game_date=config.now_utc().astimezone(config.TZ_ET).date().isoformat(),
+            timeout=config.SOURCE_PROBE_TIMEOUT,
+        )
+        available = True
+    except Exception as exc:  # pragma: no cover - 需要網路
+        LOGGER.warning(
+            "stats.nba.com 探測失敗（timeout=%ss）：%s",
+            config.SOURCE_PROBE_TIMEOUT,
+            exc,
+        )
+
+    _SOURCE_HEALTH["checked_at"] = time.time()
+    _SOURCE_HEALTH["available"] = available
+    LOGGER.info("stats.nba.com 可用：%s", available)
+    return available
+
+
+def _is_source_broken(exc: BaseException) -> bool:
+    """判斷是否為「環境層級」故障（重試也沒用），例如 pandas/numpy 被系統封鎖。"""
+    text = str(exc).lower()
+    return isinstance(exc, ImportError) or "dll load failed" in text or (
+        "no module named" in text
+    )
+
+
+def _mark_source_unavailable(exc: BaseException) -> None:
+    """把資料來源標記為不可用，後續呼叫直接走 ESPN 備援。"""
+    if _SOURCE_HEALTH["available"] is False:
+        return
+    LOGGER.warning("nba_api 環境不可用，本次改用 ESPN 備援：%s", exc)
+    _SOURCE_HEALTH["checked_at"] = time.time()
+    _SOURCE_HEALTH["available"] = False
 
 
 def _clean_scalar(value: Any) -> Any:
@@ -153,6 +210,9 @@ def _with_retry(label: str, producer: Callable[[], list[dict]]) -> list[dict]:
         except StatsFetchError:
             raise
         except Exception as exc:  # nba_api / requests 例外種類繁多
+            if _is_source_broken(exc):
+                _mark_source_unavailable(exc)
+                raise StatsFetchError(f"{label} 資料來源不可用：{exc}") from exc
             last_error = exc
             LOGGER.warning(
                 "%s 請求失敗（第 %d/%d 次）：%s",
@@ -309,6 +369,8 @@ def fetch_team_advanced(
     last_n_games: int = 0,
 ) -> list[dict]:
     """抓取 LeagueDashTeamStats（Advanced / PerGame）原始資料列。"""
+    if not nba_api_available():
+        raise StatsFetchError("stats.nba.com 不可用，無法取得球隊進階數據。")
     endpoint = _endpoint("LeagueDashTeamStats")
     api_params = {
         "season": season,
@@ -330,7 +392,7 @@ def fetch_team_advanced(
     )
 
 
-def fetch_team_game_log(
+def _fetch_team_game_log_nba(
     season: str,
     season_type: str = config.SEASON_TYPE,
 ) -> list[dict]:
@@ -449,6 +511,8 @@ def fetch_schedule(
     season_type: str = config.SEASON_TYPE,
 ) -> list[dict]:
     """抓取整季賽程並正規化（含主客隊、UTC/ET 時間、比分）。"""
+    if not nba_api_available():
+        raise StatsFetchError("stats.nba.com 不可用，無法取得整季賽程。")
     endpoint = _endpoint("ScheduleLeagueV2")
     api_params = {"season": season, "league_id": "00"}
 
@@ -618,6 +682,9 @@ def _fetch_scoreboard_games(
         except Exception as exc:
             last_error = exc
             LOGGER.warning("ScoreboardV3(%s) 失敗：%s", date_arg, exc)
+            if _is_source_broken(exc):
+                _mark_source_unavailable(exc)
+                break
     if success:
         return []
     raise StatsFetchError(
@@ -625,7 +692,7 @@ def _fetch_scoreboard_games(
     ) from last_error
 
 
-def fetch_games_for_date(
+def _fetch_games_for_date_nba(
     season: str,
     target_date: date,
     season_type: str = config.SEASON_TYPE,
@@ -668,6 +735,8 @@ def fetch_player_season_stats(
     season_type: str = config.SEASON_TYPE,
 ) -> list[dict]:
     """抓取全聯盟球員場均數據並精簡欄位。"""
+    if not nba_api_available():
+        raise StatsFetchError("stats.nba.com 不可用，略過球員數據（傷兵改用預設佔比）。")
     endpoint = _endpoint("LeagueDashPlayerStats")
     api_params = {
         "season": season,
@@ -721,7 +790,7 @@ def _average(values) -> float | None:
     return sum(cleaned) / len(cleaned)
 
 
-def fetch_all_team_stats(
+def _fetch_all_team_stats_nba(
     season: str,
     season_type: str = config.SEASON_TYPE,
 ) -> dict:
@@ -819,6 +888,7 @@ def fetch_all_team_stats(
             league[key] = fallback
 
     return {
+        "source": "nba_api",
         "season": season,
         "season_type": season_type,
         "fetched_at": config.to_iso(config.now_utc()),
@@ -827,3 +897,113 @@ def fetch_all_team_stats(
         "game_log": game_log,
         "warnings": warnings,
     }
+
+
+# --------------------------------------------------------------------------
+# 對外介面：nba_api 優先；不可用或失敗時自動改用 ESPN 備援
+# --------------------------------------------------------------------------
+def _espn_team_stats(season: str, season_type: str) -> dict:
+    """取得 ESPN 備援的球季數據，失敗時轉成 StatsFetchError。"""
+    if not config.ESPN_FALLBACK_ENABLED:
+        raise StatsFetchError(
+            "stats.nba.com 不可用，且已停用 ESPN 備援（config.ESPN_FALLBACK_ENABLED）。"
+        )
+    try:
+        return fetch_espn.fetch_all_team_stats(season, season_type)
+    except fetch_espn.EspnFetchError as exc:
+        raise StatsFetchError(
+            f"stats.nba.com 與 ESPN 皆無法取得球季數據：{exc}"
+        ) from exc
+
+
+def _espn_games_for_date(
+    season: str,
+    target_date: date,
+    season_type: str,
+    warnings: list[str],
+) -> list[dict]:
+    """取得 ESPN 備援的當日賽程，失敗時只留下警告。"""
+    if not config.ESPN_FALLBACK_ENABLED:
+        return []
+    try:
+        return fetch_espn.fetch_games_for_date(season, target_date, season_type)
+    except fetch_espn.EspnFetchError as exc:
+        LOGGER.warning("ESPN 賽程備援失敗：%s", exc)
+        warnings.append(f"ESPN 賽程備援失敗：{exc}")
+        return []
+
+
+def fetch_all_team_stats(
+    season: str,
+    season_type: str = config.SEASON_TYPE,
+) -> dict:
+    """球季數據：優先 nba_api，不可用或失敗時改用 ESPN 備援。"""
+    if not nba_api_available():
+        return _espn_team_stats(season, season_type)
+    try:
+        return _fetch_all_team_stats_nba(season, season_type)
+    except StatsFetchError as exc:
+        if not config.ESPN_FALLBACK_ENABLED:
+            raise
+        LOGGER.warning("nba_api 球季數據失敗，改用 ESPN 備援：%s", exc)
+        payload = _espn_team_stats(season, season_type)
+        payload.setdefault("warnings", []).insert(
+            0, f"nba_api 球季數據失敗，已改用 ESPN 備援：{exc}"
+        )
+        return payload
+
+
+def fetch_team_game_log(
+    season: str,
+    season_type: str = config.SEASON_TYPE,
+) -> list[dict]:
+    """逐場 log：優先 nba_api，不可用或失敗時改用 ESPN 備援。"""
+    if nba_api_available():
+        try:
+            return _fetch_team_game_log_nba(season, season_type)
+        except StatsFetchError as exc:
+            if not config.ESPN_FALLBACK_ENABLED:
+                raise
+            LOGGER.warning("nba_api 逐場資料失敗，改用 ESPN 備援：%s", exc)
+    if not config.ESPN_FALLBACK_ENABLED:
+        raise StatsFetchError("stats.nba.com 不可用，且已停用 ESPN 備援。")
+    try:
+        return fetch_espn.fetch_team_game_log(season, season_type)
+    except fetch_espn.EspnFetchError as exc:
+        raise StatsFetchError(f"ESPN 逐場資料也無法取得：{exc}") from exc
+
+
+def fetch_games_for_date(
+    season: str,
+    target_date: date,
+    season_type: str = config.SEASON_TYPE,
+    schedule: list[dict] | None = None,
+) -> dict:
+    """當日賽程：優先 nba_api，查無資料或不可用時改用 ESPN 備援。"""
+    if nba_api_available():
+        try:
+            payload = _fetch_games_for_date_nba(
+                season, target_date, season_type, schedule
+            )
+        except StatsFetchError as exc:
+            LOGGER.warning("nba_api 賽程抓取失敗，改用 ESPN 備援：%s", exc)
+            payload = {
+                "games": [],
+                "schedule": [],
+                "warnings": [f"nba_api 賽程抓取失敗：{exc}"],
+            }
+        if payload["games"]:
+            return payload
+        espn_games = _espn_games_for_date(
+            season, target_date, season_type, payload["warnings"]
+        )
+        if espn_games:
+            payload["games"] = espn_games
+            payload["warnings"].append(
+                "stats.nba.com 查無當日賽事，已改用 ESPN 備援。"
+            )
+        return payload
+
+    warnings = ["stats.nba.com 不可用，賽程改用 ESPN 備援。"]
+    games = _espn_games_for_date(season, target_date, season_type, warnings)
+    return {"games": games, "schedule": [], "warnings": warnings}
