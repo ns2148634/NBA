@@ -707,6 +707,85 @@ class MainFlowTests(unittest.TestCase):
             self.assertEqual(len(history), 1)
             self.assertEqual(history[0]["game_id"], "0022600999")
 
+    def test_predict_applies_injuries_without_player_stats(self) -> None:
+        game = {
+            "game_id": "0022600998",
+            "game_date": "2026-11-17",
+            "game_time_et": "19:30",
+            "game_time_taipei": "2026-11-18T08:30+08:00",
+            "home_team": "BOS",
+            "away_team": "NYK",
+            "home_rest_days": 1,
+            "away_rest_days": 1,
+            "home_b2b": False,
+            "away_b2b": False,
+            "is_neutral": False,
+            "status": 1,
+        }
+        injury_entry = {
+            "team": "BOS",
+            "team_name": "Boston Celtics",
+            "player": "Jayson Tatum",
+            "status": "out",
+            "status_raw": "Out",
+            "severity": 1.0,
+            "reason": "Ankle",
+            "game_date": "2026-11-17",
+            "matchup": "",
+        }
+        injuries = {
+            "source": "test",
+            "available": True,
+            "report_timestamp_et": "2026-11-17T17:30",
+            "report_url": "https://example.com/report.pdf",
+            "warnings": [],
+            "injuries": [injury_entry],
+            "by_team": {"BOS": [injury_entry]},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            predictions_path = directory / "daily_predictions.json"
+            with mock.patch.object(
+                config, "TEAM_RATINGS_PATH", directory / "team_ratings.json"
+            ), mock.patch.object(
+                config, "DAILY_PREDICTIONS_PATH", predictions_path
+            ), mock.patch.object(
+                config, "HISTORY_LOG_PATH", directory / "history_log.csv"
+            ), mock.patch.object(
+                fetch_stats, "fetch_all_team_stats", return_value=_stats_payload()
+            ), mock.patch.object(
+                fetch_stats,
+                "fetch_games_for_date",
+                return_value={"games": [game], "schedule": [], "warnings": []},
+            ), mock.patch.object(
+                fetch_stats, "fetch_team_game_log", return_value=[]
+            ), mock.patch.object(
+                fetch_stats,
+                "fetch_player_season_stats",
+                side_effect=fetch_stats.StatsFetchError("pandas 不可用"),
+            ), mock.patch.object(
+                fetch_injuries, "fetch_injuries", return_value=injuries
+            ):
+                exit_code = main_module.main(
+                    [
+                        "--mode",
+                        "predict",
+                        "--date",
+                        "2026-11-17",
+                        "--season",
+                        "2026-27",
+                        "--log-level",
+                        "ERROR",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(predictions_path.read_text(encoding="utf-8"))
+            self.assertTrue(payload["injury_report"]["available"])
+            prediction = payload["predictions"][0]
+            self.assertGreater(prediction["home_injury_deduction"], 0)
+            self.assertEqual(len(prediction["home_injuries"]), 1)
+
 
 def _espn_team(abbreviation: str) -> dict:
     return {
@@ -987,6 +1066,52 @@ class EspnFallbackTests(unittest.TestCase):
         self.assertEqual(prediction["predicted_winner"], "BOS")
         self.assertGreater(prediction["predicted_total"], config.TOTAL_MIN)
         self.assertLess(prediction["predicted_total"], config.TOTAL_MAX)
+
+
+class InjurySnapshotTests(unittest.TestCase):
+    def test_save_snapshot_writes_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with mock.patch.object(config, "CACHE_DIR", directory), mock.patch.object(
+                config, "ENABLE_CACHE", True
+            ):
+                fetch_injuries._save_snapshot(
+                    [{"team": "BOS", "player": "Jayson Tatum"}],
+                    datetime(2026, 11, 17, 19, 30, tzinfo=config.TZ_ET),
+                )
+            files = sorted(directory.glob("injury_report_*.json"))
+            self.assertEqual(len(files), 1)
+            payload = json.loads(files[0].read_text(encoding="utf-8"))
+            self.assertEqual(payload[0]["team"], "BOS")
+
+    def test_snapshot_failure_does_not_break_injuries(self) -> None:
+        dataframe = FakeFrame(
+            [
+                {
+                    "Team": "Boston Celtics",
+                    "Player Name": "Jayson Tatum",
+                    "Current Status": "Out",
+                    "Reason": "Ankle",
+                    "Game Date": "11/17/2026",
+                }
+            ]
+        )
+        report = {
+            "timestamp": datetime(2026, 11, 17, 17, 30, tzinfo=config.TZ_ET),
+            "url": "https://example.com/Injury-Report.pdf",
+            "dataframe": dataframe,
+        }
+        with mock.patch.object(
+            fetch_injuries, "latest_report", return_value=report
+        ), mock.patch.object(
+            fetch_injuries, "_save_snapshot", side_effect=RuntimeError("disk full")
+        ):
+            payload = fetch_injuries.fetch_injuries(
+                [{"home_team": "BOS", "away_team": "NYK"}], date(2026, 11, 17)
+            )
+        self.assertTrue(payload["available"])
+        self.assertEqual(len(payload["injuries"]), 1)
+        self.assertEqual(payload["injuries"][0]["team"], "BOS")
 
 
 if __name__ == "__main__":

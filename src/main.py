@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from datetime import date, datetime
 
@@ -378,5 +379,16 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _run_cli() -> None:
+    """CLI 入口：清空緩衝後強制結束，避免 nbainjuries / tabula 留下的
+    非 daemon 執行緒或 Java 子程序讓 process 卡在 interpreter shutdown。
+    """
+    code = main()
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    _run_cli()

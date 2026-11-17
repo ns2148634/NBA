@@ -34,7 +34,7 @@ NBA/
 │  └─ main.py                     # CLI 入口（base / predict / both / settle）
 ├─ tests/
 │  ├─ __init__.py
-│  └─ test_offline.py             # 33 個離線測試（合成資料，不需網路）
+│  └─ test_offline.py             # 36 個離線測試（合成資料，不需網路）
 ├─ requirements.txt
 └─ README.md
 ```
@@ -371,7 +371,7 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 python -m unittest discover -s tests -t . -v
 ```
 
-33 個離線測試（不需網路、不需 pandas）涵蓋：
+36 個離線測試（不需網路、不需 pandas）涵蓋：
 
 * EMA、收縮、25–75 夾限、`base_rating = 50 + expected_margin`
 * 傷病影響佔比、姓名正規化與同姓球員比對、狀態嚴重度、12 分上限
@@ -381,6 +381,7 @@ python -m unittest discover -s tests -t . -v
 * 賽程正規化（UTC → ET）、熱身賽過濾、休息天數、`ScoreboardV3` 備援欄位
 * ESPN 備援：縮寫別名對照（`NY/GS/NO/SA/WSH`）、賽事正規化、`pace` 代理換算、逐場 log 去重、休息天數、自動切換與警告
 * `history_log.csv` upsert 冪等性、賽果回填、重跑不覆蓋賽果
+* 傷病快照寫入、快照失敗不影響預測、`--mode predict` 在「有傷兵但無球員數據」時仍能產出扣分
 
 ---
 
@@ -391,4 +392,5 @@ python -m unittest discover -s tests -t . -v
 * `stats.nba.com` 有速率限制：內建 3 次重試與 5/10 秒退避；API 回應快取 6 小時（`.cache/`）。
 * `stats.nba.com` 若被 Akamai 封鎖（GitHub Actions 常見），系統會自動改用 ESPN 備援，並在 `data_source` 標成 `espn`；此時 `ORtg / DRtg / Pace` 是逐場比分換算的代理值。
 * `ScoreboardV3` 備援依賴 `gameCode`（`YYYYMMDD/AWAYHOME`）判斷主客；若官方格式變動，會退回 `line_score` 的「客隊在前、主隊在後」順序。
+* `python -m src.main` 在結束時會 flush log 後呼叫 `os._exit()`：`nbainjuries` / `tabula-py` 會留下非 daemon 執行緒與 Java 子程序，若不強制結束，CI 會卡在 interpreter shutdown（直接呼叫 `main()` 的單元測試不受影響）。
 * 若在本機 Windows 看到 `DLL load failed while importing _common: 應用程式控制原則已封鎖此檔案`，代表系統的應用程式控制（WDAC / Smart App Control）封鎖了 numpy 的 DLL；此為環境限制，請改用 GitHub Actions（Ubuntu）或調整系統政策。本專案的核心模組與測試不依賴 pandas，可在受限環境下正常執行。

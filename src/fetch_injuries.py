@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -301,6 +302,16 @@ def _save_snapshot(injuries: list[dict], timestamp_et: datetime) -> None:
         )
     except OSError as exc:  # pragma: no cover - 磁碟問題
         LOGGER.debug("傷病快照寫入失敗（%s）：%s", path, exc)
+    except Exception as exc:  # noqa: BLE001 - 快照只是除錯用途，不可影響主流程
+        LOGGER.debug("傷病快照序列化失敗（%s）：%s", path, exc)
+
+
+def _save_snapshot_guarded(injuries: list[dict], timestamp_et: datetime) -> None:
+    """呼叫 :func:`_save_snapshot`；任何例外都只記錄，不影響預測流程。"""
+    try:
+        _save_snapshot(injuries, timestamp_et)
+    except Exception as exc:  # noqa: BLE001 - 快照僅供除錯
+        LOGGER.warning("傷病快照寫入失敗（不影響預測）：%s", exc)
 
 
 def fetch_injuries(
@@ -342,7 +353,7 @@ def fetch_injuries(
         by_team.setdefault(injury["team"], []).append(injury)
     payload["by_team"] = by_team
 
-    _save_snapshot(injuries, report["timestamp"])
+    _save_snapshot_guarded(injuries, report["timestamp"])
     LOGGER.info(
         "傷病報告解析完成：%d 筆（%d 支球隊）",
         len(injuries),
