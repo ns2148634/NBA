@@ -1,0 +1,71 @@
+name: A - Update Base Ratings
+
+# 排程 A：每天 UTC 07:00（台灣時間 15:00）更新 30 隊基礎戰力分。
+# 產出：data/team_ratings.json
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "NBA 賽季（例如 2026-27，留空則自動依日期推算）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+# 與 daily_prediction.yml 共用同一 group，避免兩個工作流同時改寫 data/。
+concurrency:
+  group: nba-data-write
+  cancel-in-progress: false
+
+jobs:
+  update-base-rating:
+    name: Update base ratings
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Update team base ratings
+        env:
+          PYTHONUNBUFFERED: "1"
+          TZ: "Asia/Taipei"
+          INPUT_SEASON: ${{ inputs.season }}
+        run: |
+          set -euo pipefail
+          EXTRA_ARGS=()
+          if [ -n "${INPUT_SEASON}" ]; then
+            EXTRA_ARGS+=(--season "${INPUT_SEASON}")
+          fi
+          python -m src.main --mode base "${EXTRA_ARGS[@]}"
+
+      - name: Commit and push data changes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "::notice::No data changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(data): update team base ratings ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

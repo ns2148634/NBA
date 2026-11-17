@@ -1,0 +1,5 @@
+nba_api>=1.10.0
+nbainjuries>=1.1.1
+pandas>=2.2.3
+requests>=2.32.3
+tzdata>=2024.1

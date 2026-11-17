@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "season": null,
+  "season_type": "Regular Season",
+  "generated_at": null,
+  "generated_at_taipei": null,
+  "league": null,
+  "weights": {
+    "season": 0.4,
+    "recent": 0.35,
+    "ema": 0.25,
+    "ema_alpha": 0.2
+  },
+  "teams": {}
+}
