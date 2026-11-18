@@ -17,3 +17,4 @@ venv/
 Thumbs.db
 
 # 注意：data/ 一定要進版控，GitHub Actions 才能把結果 commit 回倉庫。
+# docs/index.html 是產生檔（python -m src.build_site），但也要進版控，GitHub Pages 才能部署。

@@ -349,8 +349,8 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 
 | 工作流 | 排程（UTC） | 台灣時間 | 內容 |
 | --- | --- | --- | --- |
-| `A - Update Base Ratings` | `0 7 * * *` | 15:00 | 更新 `team_ratings.json` |
-| `B - Daily Injury & Prediction` | `30 22 * * *` | 隔日 06:30 | 傷病 + 預測 + 賽果回填 |
+| `A - Update Base Ratings` | `0 7 * * *` | 15:00 | 更新 `team_ratings.json` + 重建靜態頁 |
+| `B - Daily Injury & Prediction` | `30 22 * * *` | 隔日 06:30 | 傷病 + 預測 + 賽果回填 + 重建靜態頁 |
 
 * 兩者共用 `concurrency: nba-data-write`，避免同時改寫 `data/`。
 * `permissions: contents: write`，commit 身分為 `github-actions[bot]`。
@@ -362,7 +362,13 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 ### GitHub Pages
 
 * 靜態頁面：`docs/index.html`，由 `python -m src.build_site` 產生（純本地渲染，不連網、不依賴 pandas）。
-* Pages 設定：Source = `Deploy from a branch` → `main` / `/docs`。
+* Pages 設定：Source = `Deploy from a branch` → `main` / `/docs`；首次啟用可用：
+
+  ```bash
+  gh api -X POST repos/ns2148634/NBA/pages \
+    -f 'source[branch]=main' -f 'source[path]=/docs'
+  ```
+
 * 網址：`https://ns2148634.github.io/NBA/`。
 * 頁面同時內嵌精簡 JSON（`<script type="application/json" id="nba-data">`），方便程式取用；完整資料仍在 `data/*.json`。
 * GitHub Pages CDN 約有 10 分鐘快取，頁面上會顯示資料產生時間。
