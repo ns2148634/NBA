@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from src import config, fetch_espn, fetch_injuries, fetch_stats, rating_engine
+from src import build_site as build_site_module
 from src import main as main_module
 
 
@@ -1112,6 +1113,201 @@ class InjurySnapshotTests(unittest.TestCase):
         self.assertTrue(payload["available"])
         self.assertEqual(len(payload["injuries"]), 1)
         self.assertEqual(payload["injuries"][0]["team"], "BOS")
+
+
+def _site_ratings_payload(team_name: str = "Boston Celtics") -> dict:
+    return {
+        "schema_version": config.SCHEMA_VERSION,
+        "season": "2026-27",
+        "season_type": config.SEASON_TYPE,
+        "data_source": "espn",
+        "generated_at": "2026-11-17T00:35:00+00:00",
+        "warnings": [],
+        "teams": {
+            "BOS": {
+                "team_id": config.TEAM_BY_ABBREV["BOS"]["id"],
+                "abbreviation": "BOS",
+                "name": team_name,
+                "games_played": 14,
+                "wins": 10,
+                "losses": 4,
+                "base_rating": 64.4,
+                "net_rating": 8.2,
+                "blended_net_rating": 8.2,
+                "recent_net_rating": 6.1,
+                "pace": 113.7,
+                "data_quality": "ok",
+            },
+            "ORL": {
+                "team_id": config.TEAM_BY_ABBREV["ORL"]["id"],
+                "abbreviation": "ORL",
+                "name": "Orlando Magic",
+                "games_played": 14,
+                "wins": 6,
+                "losses": 8,
+                "base_rating": 47.5,
+                "net_rating": -2.5,
+                "blended_net_rating": -2.1,
+                "recent_net_rating": -1.4,
+                "pace": 113.7,
+                "data_quality": "ok",
+            },
+        },
+    }
+
+
+def _site_predictions_payload(away_name: str = "Orlando Magic") -> dict:
+    return {
+        "schema_version": config.SCHEMA_VERSION,
+        "season": "2026-27",
+        "data_source": "espn",
+        "game_date": "2026-11-17",
+        "generated_at": "2026-11-17T00:54:58+00:00",
+        "generated_at_taipei": "2026-11-17T08:54:58+08:00",
+        "injury_report": {
+            "source": "nbainjuries",
+            "available": True,
+            "report_timestamp_et": "2026-11-16T19:45-05:00",
+            "warnings": [],
+        },
+        "games_count": 1,
+        "warnings": ["stats.nba.com 不可用，略過球員數據（傷兵改用預設佔比）。"],
+        "predictions": [
+            {
+                "game_id": "401909994",
+                "game_date": "2026-11-17",
+                "game_time_et": "19:00",
+                "game_time_taipei": "2026-11-17T08:00+08:00",
+                "status": 1,
+                "status_text": "Scheduled",
+                "home_team": "BOS",
+                "home_team_name": "Boston Celtics",
+                "away_team": "ORL",
+                "away_team_name": away_name,
+                "home_win_prob": 0.9437,
+                "away_win_prob": 0.0563,
+                "predicted_winner": "BOS",
+                "predicted_home_score": 115.1,
+                "predicted_away_score": 96.1,
+                "predicted_total": 211.2,
+                "confidence": "high",
+                "home_injury_deduction": 0.31,
+                "away_injury_deduction": 1.25,
+                "home_injuries": [
+                    {"player": "Queta, Neemias", "status": "out", "deduction": 0.31}
+                ],
+                "away_injuries": [
+                    {"player": "Banchero, Paolo", "status": "out", "deduction": 0.31},
+                    {"player": "Isaac, Jonathan", "status": "out", "deduction": 0.31},
+                    {"player": "Nelson, Izaiyah", "status": "out", "deduction": 0.31},
+                    {"player": "Penda, Noah", "status": "out", "deduction": 0.31},
+                ],
+            }
+        ],
+    }
+
+
+class SiteBuildTests(unittest.TestCase):
+    def test_build_site_renders_predictions_and_ratings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            ratings_path = directory / "team_ratings.json"
+            predictions_path = directory / "daily_predictions.json"
+            index_path = directory / "index.html"
+            ratings_path.write_text(
+                json.dumps(_site_ratings_payload(), ensure_ascii=False), encoding="utf-8"
+            )
+            predictions_path.write_text(
+                json.dumps(_site_predictions_payload(), ensure_ascii=False), encoding="utf-8"
+            )
+
+            target = build_site_module.build_site(
+                index_path,
+                ratings_path=ratings_path,
+                predictions_path=predictions_path,
+                history_path=directory / "history_log.csv",
+                generated_at=datetime(2026, 11, 17, 1, 0, tzinfo=config.TZ_ET),
+            )
+
+            html = target.read_text(encoding="utf-8")
+            self.assertEqual(target, index_path)
+            self.assertIn("Boston Celtics", html)
+            self.assertIn("Orlando Magic", html)
+            self.assertIn("94.4%", html)
+            self.assertIn("espn 備援", html)
+            self.assertIn("08:00（台北）", html)
+            self.assertIn("Banchero, Paolo", html)
+            self.assertIn("資料提醒", html)
+            self.assertIn('id="nba-data"', html)
+            self.assertIn("尚無已回填賽果", html)
+
+
+    def test_build_site_handles_missing_data_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            target = build_site_module.build_site(
+                directory / "index.html",
+                ratings_path=directory / "missing_ratings.json",
+                predictions_path=directory / "missing_predictions.json",
+                history_path=directory / "missing_history.csv",
+            )
+            html = target.read_text(encoding="utf-8")
+            self.assertIn("尚無預測資料", html)
+            self.assertIn("尚無球隊戰力資料", html)
+            self.assertIn("unknown", html)
+
+    def test_build_site_escapes_untrusted_names(self) -> None:
+        hostile = "<script>alert('x')</script>"
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            ratings_path = directory / "team_ratings.json"
+            predictions_path = directory / "daily_predictions.json"
+            ratings_path.write_text(
+                json.dumps(_site_ratings_payload(team_name=hostile), ensure_ascii=False),
+                encoding="utf-8",
+            )
+            predictions_path.write_text(
+                json.dumps(
+                    _site_predictions_payload(away_name=hostile), ensure_ascii=False
+                ),
+                encoding="utf-8",
+            )
+            html = build_site_module.build_site(
+                directory / "index.html",
+                ratings_path=ratings_path,
+                predictions_path=predictions_path,
+                history_path=directory / "history_log.csv",
+            ).read_text(encoding="utf-8")
+
+            self.assertNotIn("<script>alert", html)
+            self.assertNotIn("</script><", html)
+            self.assertIn("&lt;script&gt;", html)
+
+
+class HistorySummaryTests(unittest.TestCase):
+    def test_summarize_history_counts_only_settled_games(self) -> None:
+        rows = [
+            {
+                "game_date": "2026-11-16",
+                "actual_home_score": "115",
+                "actual_away_score": "96",
+                "result_correct": "true",
+            },
+            {
+                "game_date": "2026-11-16",
+                "actual_home_score": "101",
+                "actual_away_score": "110",
+                "result_correct": "false",
+            },
+            {"game_date": "2026-11-17", "actual_home_score": "", "actual_away_score": ""},
+        ]
+        summary = build_site_module.summarize_history(rows)
+        self.assertEqual(summary["total_settled"], 2)
+        self.assertEqual(summary["total_correct"], 1)
+        self.assertAlmostEqual(summary["accuracy"], 0.5, places=4)
+        self.assertEqual(len(summary["days"]), 1)
+        self.assertEqual(summary["days"][0]["date"], "2026-11-16")
+        self.assertEqual(summary["days"][0]["games"], 2)
 
 
 if __name__ == "__main__":

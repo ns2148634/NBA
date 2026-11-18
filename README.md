@@ -10,6 +10,8 @@
 
 所有結果都直接 commit 回倉庫，不需要任何外部資料庫或伺服器。
 
+**線上版（每日自動更新）**：[https://ns2148634.github.io/NBA/](https://ns2148634.github.io/NBA/) — 由 `python -m src.build_site` 產生的靜態頁面，顯示今日預測、30 隊戰力排行與近期命中率。
+
 ---
 
 ## 1. 檔案結構
@@ -24,6 +26,8 @@ NBA/
 │  ├─ team_ratings.json           # 30 隊基礎戰力分
 │  ├─ daily_predictions.json      # 當日預測（每日覆寫）
 │  └─ history_log.csv             # 歷史預測 + 賽果回填（累積）
+├─ docs/
+│  └─ index.html                  # GitHub Pages 靜態戰報（自動產生，勿手改）
 ├─ src/
 │  ├─ __init__.py
 │  ├─ config.py                   # 參數、30 隊對照表、時區、路徑
@@ -31,10 +35,11 @@ NBA/
 │  ├─ fetch_espn.py               # ESPN 公開 API 備援（當日賽程 + 逐場比分換算）
 │  ├─ fetch_injuries.py           # nbainjuries 抓取層（15 分鐘粒度探測）
 │  ├─ rating_engine.py            # 評分、傷病扣分、預測、JSON/CSV IO
+│  ├─ build_site.py               # 產生 docs/index.html（純本地渲染，不連網）
 │  └─ main.py                     # CLI 入口（base / predict / both / settle）
 ├─ tests/
 │  ├─ __init__.py
-│  └─ test_offline.py             # 36 個離線測試（合成資料，不需網路）
+│  └─ test_offline.py             # 40 個離線測試（合成資料，不需網路）
 ├─ requirements.txt
 └─ README.md
 ```
@@ -59,6 +64,9 @@ python -m src.main --mode both
 
 # 只回填歷史賽果
 python -m src.main --mode settle
+
+# 由 data/ 產生 GitHub Pages 靜態頁（docs/index.html）
+python -m src.build_site
 ```
 
 ### CLI 參數
@@ -346,9 +354,18 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 
 * 兩者共用 `concurrency: nba-data-write`，避免同時改寫 `data/`。
 * `permissions: contents: write`，commit 身分為 `github-actions[bot]`。
-* 只在 `data/` 有變動時才 commit；推送前先 `git pull --rebase --autostash`。
+* 兩支工作流都會在資料更新後執行 `python -m src.build_site`，並以 `git add data/ docs/` 一起提交，讓 Pages 內容與資料同步。
+* 只在資料有變動時才 commit；推送前先 `git pull --rebase --autostash`。
 * 工作流 B 會安裝 **Temurin 17**（`nbainjuries` 透過 tabula-py 解析 PDF，需要 JRE）。
 * 兩者都支援 `workflow_dispatch`，可手動指定 `season` / `date`。
+
+### GitHub Pages
+
+* 靜態頁面：`docs/index.html`，由 `python -m src.build_site` 產生（純本地渲染，不連網、不依賴 pandas）。
+* Pages 設定：Source = `Deploy from a branch` → `main` / `/docs`。
+* 網址：`https://ns2148634.github.io/NBA/`。
+* 頁面同時內嵌精簡 JSON（`<script type="application/json" id="nba-data">`），方便程式取用；完整資料仍在 `data/*.json`。
+* GitHub Pages CDN 約有 10 分鐘快取，頁面上會顯示資料產生時間。
 
 ---
 
@@ -371,7 +388,7 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 python -m unittest discover -s tests -t . -v
 ```
 
-36 個離線測試（不需網路、不需 pandas）涵蓋：
+40 個離線測試（不需網路、不需 pandas）涵蓋：
 
 * EMA、收縮、25–75 夾限、`base_rating = 50 + expected_margin`
 * 傷病影響佔比、姓名正規化與同姓球員比對、狀態嚴重度、12 分上限
@@ -382,6 +399,7 @@ python -m unittest discover -s tests -t . -v
 * ESPN 備援：縮寫別名對照（`NY/GS/NO/SA/WSH`）、賽事正規化、`pace` 代理換算、逐場 log 去重、休息天數、自動切換與警告
 * `history_log.csv` upsert 冪等性、賽果回填、重跑不覆蓋賽果
 * 傷病快照寫入、快照失敗不影響預測、`--mode predict` 在「有傷兵但無球員數據」時仍能產出扣分
+* 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計只計已回填場次
 
 ---
 
@@ -391,7 +409,8 @@ python -m unittest discover -s tests -t . -v
 * Windows 需要 `tzdata`（已列入 `requirements.txt`）。若系統缺少時區資料，程式會退回固定 UTC 位移，但跨日光節約時間可能不準。
 * `stats.nba.com` 有速率限制：內建 3 次重試與 5/10 秒退避；API 回應快取 6 小時（`.cache/`）。
 * `stats.nba.com` 若被 Akamai 封鎖（GitHub Actions 常見），系統會自動改用 ESPN 備援，並在 `data_source` 標成 `espn`；此時 `ORtg / DRtg / Pace` 是逐場比分換算的代理值。
-* ESPN 備援模式下無法取得球員場均數據，傷病扣分會改用 `DEFAULT_UNKNOWN_PLAYER_SHARE`（每位傷兵固定佔比），`daily_predictions.json` 的 `injury_report.warnings` 會標示；若需要依球星影響力計算扣分，請在可連線 `stats.nba.com` 的環境執行。
+* `docs/index.html` 是 **產生檔**，請修改 `src/build_site.py` 後重新執行 `python -m src.build_site`，不要手動編輯。
+* ESPN 備援模式下無法取得球員場均數據，傷病扣分會改用 `DEFAULT_UNKNOWN_PLAYER_SHARE`（每位傷兵固定佔比），`daily_predictions.json` 的 `injury_report.warnings` 會標示；若需要依球星影響力計算扣分，請在可連線 `stats.nba.com` 的環境執行。靜態頁也會顯示「espn 備援（代理指標）」徽章。
 * `ScoreboardV3` 備援依賴 `gameCode`（`YYYYMMDD/AWAYHOME`）判斷主客；若官方格式變動，會退回 `line_score` 的「客隊在前、主隊在後」順序。
 * `python -m src.main` 在結束時會 flush log 後呼叫 `os._exit()`：`nbainjuries` / `tabula-py` 會留下非 daemon 執行緒與 Java 子程序，若不強制結束，CI 會卡在 interpreter shutdown（直接呼叫 `main()` 的單元測試不受影響）。
 * 若在本機 Windows 看到 `DLL load failed while importing _common: 應用程式控制原則已封鎖此檔案`，代表系統的應用程式控制（WDAC / Smart App Control）封鎖了 numpy 的 DLL；此為環境限制，請改用 GitHub Actions（Ubuntu）或調整系統政策。本專案的核心模組與測試不依賴 pandas，可在受限環境下正常執行。
