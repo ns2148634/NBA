@@ -3,14 +3,14 @@
   "season": "2026-27",
   "data_source": "espn",
   "game_date": "2026-11-17",
-  "generated_at": "2026-11-18T01:36:38+00:00",
-  "generated_at_taipei": "2026-11-18T09:36:38+08:00",
+  "generated_at": "2026-11-18T03:46:28+00:00",
+  "generated_at_taipei": "2026-11-18T11:46:28+08:00",
   "ratings_generated_at": "2026-11-17T16:41:39+00:00",
   "injury_report": {
     "source": "nbainjuries",
     "available": true,
-    "report_timestamp_et": "2026-11-17T20:30-05:00",
-    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-17_08_30PM.pdf",
+    "report_timestamp_et": "2026-11-17T22:45-05:00",
+    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-17_10_45PM.pdf",
     "warnings": [
       "stats.nba.com 不可用，略過球員數據（傷兵改用預設佔比）。"
     ]
@@ -25,8 +25,8 @@
       "game_date": "2026-11-17",
       "game_time_et": "19:30",
       "game_time_taipei": "2026-11-18T08:30+08:00",
-      "status": 2,
-      "status_text": "Halftime",
+      "status": 3,
+      "status_text": "Final",
       "venue": "Scotiabank Arena",
       "is_neutral": false,
       "home_team": "TOR",
@@ -105,15 +105,15 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.74
       },
-      "generated_at": "2026-11-18T01:36:38+00:00"
+      "generated_at": "2026-11-18T03:46:28+00:00"
     },
     {
       "game_id": "401910003",
       "game_date": "2026-11-17",
       "game_time_et": "20:00",
       "game_time_taipei": "2026-11-18T09:00+08:00",
-      "status": 2,
-      "status_text": "30.0 - 1st Quarter",
+      "status": 3,
+      "status_text": "Final",
       "venue": "Target Center",
       "is_neutral": false,
       "home_team": "MIN",
@@ -259,15 +259,15 @@
         "away_rest_adjustment": -1.2,
         "pace": 113.74
       },
-      "generated_at": "2026-11-18T01:36:38+00:00"
+      "generated_at": "2026-11-18T03:46:28+00:00"
     },
     {
       "game_id": "401910004",
       "game_date": "2026-11-17",
       "game_time_et": "20:00",
       "game_time_taipei": "2026-11-18T09:00+08:00",
-      "status": 2,
-      "status_text": "2:02 - 1st Quarter",
+      "status": 3,
+      "status_text": "Final",
       "venue": "Frost Bank Center",
       "is_neutral": false,
       "home_team": "SAS",
@@ -424,15 +424,15 @@
         "away_rest_adjustment": 0.25,
         "pace": 113.74
       },
-      "generated_at": "2026-11-18T01:36:38+00:00"
+      "generated_at": "2026-11-18T03:46:28+00:00"
     },
     {
       "game_id": "401910006",
       "game_date": "2026-11-17",
       "game_time_et": "22:30",
       "game_time_taipei": "2026-11-18T11:30+08:00",
-      "status": 1,
-      "status_text": "Tue, November 17th at 10:30 PM EST",
+      "status": 2,
+      "status_text": "8:24 - 1st Quarter",
       "venue": "Intuit Dome",
       "is_neutral": false,
       "home_team": "LAC",
@@ -441,20 +441,20 @@
       "away_team_name": "Utah Jazz",
       "home_rating": 45.85,
       "away_rating": 38.73,
-      "home_injury_deduction": 1.25,
+      "home_injury_deduction": 1.56,
       "away_injury_deduction": 1.87,
-      "home_effective_rating": 44.6,
+      "home_effective_rating": 44.29,
       "away_effective_rating": 36.86,
       "home_rest_days": 1,
       "away_rest_days": 1,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": 10.34,
-      "predicted_home_score": 117.4,
-      "predicted_away_score": 107.1,
-      "predicted_total": 224.5,
-      "home_win_prob": 0.8056,
-      "away_win_prob": 0.1944,
+      "predicted_margin": 10.03,
+      "predicted_home_score": 117.2,
+      "predicted_away_score": 107.2,
+      "predicted_total": 224.4,
+      "home_win_prob": 0.7984,
+      "away_win_prob": 0.2016,
       "predicted_winner": "LAC",
       "predicted_winner_name": "LA Clippers",
       "confidence": "high",
@@ -497,6 +497,17 @@
           "status": "out",
           "status_raw": "Out",
           "reason": "Injury/Illness - Right Lisfranc Surgery",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        },
+        {
+          "player": "Pickett, Jalen",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "G League - Two-Way",
           "severity": 1.0,
           "impact_share": 0.03,
           "matched": false,
@@ -578,7 +589,7 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.74
       },
-      "generated_at": "2026-11-18T01:36:38+00:00"
+      "generated_at": "2026-11-18T03:46:28+00:00"
     },
     {
       "game_id": "401910005",
@@ -596,19 +607,19 @@
       "home_rating": 58.19,
       "away_rating": 39.75,
       "home_injury_deduction": 0.62,
-      "away_injury_deduction": 1.56,
+      "away_injury_deduction": 1.87,
       "home_effective_rating": 57.57,
-      "away_effective_rating": 38.19,
+      "away_effective_rating": 37.88,
       "home_rest_days": 1,
       "away_rest_days": 1,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": 21.98,
-      "predicted_home_score": 119.7,
-      "predicted_away_score": 97.7,
-      "predicted_total": 217.4,
-      "home_win_prob": 0.9665,
-      "away_win_prob": 0.0335,
+      "predicted_margin": 22.29,
+      "predicted_home_score": 119.8,
+      "predicted_away_score": 97.5,
+      "predicted_total": 217.3,
+      "home_win_prob": 0.9684,
+      "away_win_prob": 0.0316,
       "predicted_winner": "LAL",
       "predicted_winner_name": "Los Angeles Lakers",
       "confidence": "high",
@@ -642,6 +653,17 @@
           "status": "out",
           "status_raw": "Out",
           "reason": "G League - Two-Way",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        },
+        {
+          "player": "Allen, Grayson",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Concussion-like symptoms",
           "severity": 1.0,
           "impact_share": 0.03,
           "matched": false,
@@ -699,7 +721,7 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.74
       },
-      "generated_at": "2026-11-18T01:36:38+00:00"
+      "generated_at": "2026-11-18T03:46:28+00:00"
     }
   ]
 }
