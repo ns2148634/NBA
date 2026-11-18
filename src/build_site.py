@@ -627,7 +627,6 @@ def _render_html(
     ) + "\n"
 
 
-
 def build_site(
     index_path: str | Path | None = None,
     *,
