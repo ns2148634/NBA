@@ -787,6 +787,99 @@ class MainFlowTests(unittest.TestCase):
             self.assertGreater(prediction["home_injury_deduction"], 0)
             self.assertEqual(len(prediction["home_injuries"]), 1)
 
+    def test_post_game_rerun_keeps_existing_pre_game_predictions(self) -> None:
+        game = {
+            "game_id": "0022600997",
+            "game_date": "2026-11-17",
+            "game_time_et": "19:30",
+            "game_time_utc": "2026-11-18T00:30:00+00:00",
+            "game_time_taipei": "2026-11-18T08:30+08:00",
+            "home_team": "BOS",
+            "away_team": "NYK",
+            "home_rest_days": 1,
+            "away_rest_days": 1,
+            "home_b2b": False,
+            "away_b2b": False,
+            "is_neutral": False,
+            "status": 1,
+        }
+        pre_game = {
+            "schema_version": 1,
+            "season": "2026-27",
+            "game_date": "2026-11-17",
+            "generated_at": "2026-11-17T12:00:00+00:00",
+            "games_count": 1,
+            "warnings": [],
+            "predictions": [
+                {
+                    "game_id": "0022600997",
+                    "game_date": "2026-11-17",
+                    "game_time_et": "19:30",
+                    "home_team": "BOS",
+                    "away_team": "NYK",
+                    "predicted_winner": "NYK",
+                    "post_game": False,
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            predictions_path = directory / "daily_predictions.json"
+            history_path = directory / "history_log.csv"
+            predictions_path.write_text(
+                json.dumps(pre_game, ensure_ascii=False), encoding="utf-8"
+            )
+            with mock.patch.object(
+                config, "TEAM_RATINGS_PATH", directory / "team_ratings.json"
+            ), mock.patch.object(
+                config, "DAILY_PREDICTIONS_PATH", predictions_path
+            ), mock.patch.object(
+                config, "HISTORY_LOG_PATH", history_path
+            ), mock.patch.object(
+                fetch_stats, "fetch_all_team_stats", return_value=_stats_payload()
+            ), mock.patch.object(
+                fetch_stats,
+                "fetch_games_for_date",
+                return_value={"games": [game], "schedule": [], "warnings": []},
+            ), mock.patch.object(
+                fetch_stats, "fetch_team_game_log", return_value=[]
+            ), mock.patch.object(
+                config,
+                "now_utc",
+                return_value=datetime(2026, 11, 18, 4, 0, tzinfo=config.TZ_ET),
+            ), mock.patch.object(
+                fetch_injuries,
+                "fetch_injuries",
+                return_value={
+                    "source": "test",
+                    "available": False,
+                    "warnings": [],
+                    "by_team": {},
+                },
+            ):
+                exit_code = main_module.main(
+                    [
+                        "--mode",
+                        "predict",
+                        "--date",
+                        "2026-11-17",
+                        "--season",
+                        "2026-27",
+                        "--log-level",
+                        "ERROR",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            kept = json.loads(predictions_path.read_text(encoding="utf-8"))
+            self.assertEqual(kept["predictions"][0]["predicted_winner"], "NYK")
+            self.assertTrue(
+                any("保留賽前預測" in message for message in kept["warnings"])
+            )
+            history = rating_engine.read_history(history_path)
+            self.assertEqual(len(history), 1)
+            self.assertEqual(history[0]["post_game"], "false")
+
 
 def _espn_team(abbreviation: str) -> dict:
     return {
@@ -1069,6 +1162,350 @@ class EspnFallbackTests(unittest.TestCase):
         self.assertLess(prediction["predicted_total"], config.TOTAL_MAX)
 
 
+class EspnPlayerStatsTests(unittest.TestCase):
+    """ESPN byathlete 端點（stats.nba.com 不可用時的球員數據替代來源）。"""
+
+    def _payload(self) -> dict:
+        return {
+            "categories": [
+                {"name": "general", "names": ["gamesPlayed", "avgMinutes"]},
+                {"name": "offensive", "names": ["avgPoints", "avgAssists", "avgTurnovers"]},
+                {"name": "defensive", "names": ["avgSteals", "avgBlocks"]},
+            ],
+            "pagination": {"pages": 1},
+            "athletes": [
+                {
+                    "athlete": {
+                        "id": "111",
+                        "displayName": "Keldon Johnson",
+                        "teamShortName": "SA",
+                    },
+                    "categories": [
+                        {"name": "general", "values": [15, 28.5]},
+                        {"name": "offensive", "values": [17.2, 3.1, 1.4]},
+                        {"name": "defensive", "values": [0.8, 0.3]},
+                    ],
+                },
+                {
+                    "athlete": {"id": "222", "displayName": "No Team Guy"},
+                    "categories": [{"name": "general", "values": [3, 12.0]}],
+                },
+            ],
+        }
+
+    def test_byathlete_rows_are_normalized(self) -> None:
+        with mock.patch.object(
+            fetch_espn, "_get_json", return_value=self._payload()
+        ) as get_json:
+            rows = fetch_espn.fetch_player_season_stats("2026-27")
+
+        self.assertEqual(len(rows), 1)  # 沒有球隊的球員會被略過
+        row = rows[0]
+        self.assertEqual(row["player_id"], 111)
+        self.assertEqual(row["name"], "Keldon Johnson")
+        self.assertEqual(row["team_abbrev"], "SAS")  # ESPN 的 SA -> 官方 SAS
+        self.assertEqual(row["gp"], 15)
+        self.assertAlmostEqual(row["min"], 28.5)
+        self.assertAlmostEqual(row["pts"], 17.2)
+        self.assertAlmostEqual(row["tov"], 1.4)
+        self.assertAlmostEqual(row["blk"], 0.3)
+        # 參數需帶 ESPN 的球季結束年份與例行賽代碼
+        self.assertIn("season=2027", get_json.call_args[0][0])
+        self.assertIn("seasontype=2", get_json.call_args[0][0])
+
+    def test_empty_payload_raises(self) -> None:
+        with mock.patch.object(
+            fetch_espn, "_get_json", return_value={"categories": [], "athletes": []}
+        ):
+            with self.assertRaises(fetch_espn.EspnFetchError):
+                fetch_espn.fetch_player_season_stats("2026-27")
+
+
+class PlayerStatsFallbackTests(unittest.TestCase):
+    """fetch_stats.fetch_player_season_stats 的 ESPN 備援流程。"""
+
+    ROWS = [
+        {
+            "player_id": 1,
+            "name": "Jayson Tatum",
+            "team_abbrev": "BOS",
+            "gp": 12,
+            "min": 34.0,
+            "pts": 27.0,
+            "reb": 8.0,
+            "ast": 5.0,
+            "stl": 1.0,
+            "blk": 0.6,
+            "tov": 2.5,
+        }
+    ]
+
+    def test_nba_unavailable_uses_espn(self) -> None:
+        warnings: list[str] = []
+        with mock.patch.object(
+            fetch_stats, "nba_api_available", return_value=False
+        ), mock.patch.object(
+            fetch_stats.fetch_espn, "fetch_player_season_stats", return_value=self.ROWS
+        ):
+            rows = fetch_stats.fetch_player_season_stats("2026-27", warnings=warnings)
+
+        self.assertEqual(rows, self.ROWS)
+        self.assertTrue(any("ESPN" in message for message in warnings))
+
+    def test_nba_failure_falls_back_to_espn(self) -> None:
+        with mock.patch.object(
+            fetch_stats, "nba_api_available", return_value=True
+        ), mock.patch.object(
+            fetch_stats,
+            "_fetch_player_season_stats_nba",
+            side_effect=fetch_stats.StatsFetchError("boom"),
+        ), mock.patch.object(
+            fetch_stats.fetch_espn, "fetch_player_season_stats", return_value=self.ROWS
+        ):
+            self.assertEqual(fetch_stats.fetch_player_season_stats("2026-27"), self.ROWS)
+
+    def test_disabled_flag_raises(self) -> None:
+        with mock.patch.object(
+            fetch_stats, "nba_api_available", return_value=False
+        ), mock.patch.object(config, "ESPN_PLAYER_STATS_FALLBACK_ENABLED", False):
+            with self.assertRaises(fetch_stats.StatsFetchError):
+                fetch_stats.fetch_player_season_stats("2026-27")
+
+
+class EspnInjuryTests(unittest.TestCase):
+    """ESPN 傷兵名單：官方報告不可用時的替代來源。"""
+
+    GAMES = [{"home_team": "MEM", "away_team": "GSW"}]
+    ESPN_ROWS = [
+        {
+            "team": "GSW",
+            "player": "Jimmy Butler III",
+            "status": "Out",
+            "reason": "Right Knee Surgery",
+            "updated_at": "2026-11-18T17:12:00+00:00",
+        },
+        {
+            "team": "MEM",
+            "player": "Zach Edey",
+            "status": "Day-To-Day",
+            "reason": "Ankle",
+            "updated_at": None,
+        },
+        {
+            "team": "BOS",
+            "player": "Jayson Tatum",
+            "status": "Out",
+            "reason": "Achilles",
+            "updated_at": None,
+        },
+        {
+            "team": "MEM",
+            "player": "Ja Morant",
+            "status": "Available",
+            "reason": "",
+            "updated_at": None,
+        },
+    ]
+
+    def test_parse_espn_injuries_filters_and_normalizes(self) -> None:
+        injuries, warnings = fetch_injuries.parse_espn_injuries(
+            self.ESPN_ROWS, self.GAMES, date(2026, 11, 19)
+        )
+        self.assertEqual(warnings, [])
+        # 非當日出賽球隊（BOS）與 Available 都應被剔除
+        self.assertEqual({row["team"] for row in injuries}, {"GSW", "MEM"})
+        self.assertEqual(len(injuries), 2)
+        self.assertTrue(all(row["source"] == "espn" for row in injuries))
+        edey = next(row for row in injuries if row["player"] == "Zach Edey")
+        self.assertEqual(edey["status"], "day-to-day")
+        self.assertAlmostEqual(
+            edey["severity"], config.INJURY_STATUS_WEIGHTS["day-to-day"]
+        )
+        self.assertEqual(edey["game_date"], "2026-11-19")
+
+    def test_parse_espn_injuries_respects_team_filter(self) -> None:
+        injuries, _ = fetch_injuries.parse_espn_injuries(
+            self.ESPN_ROWS, self.GAMES, date(2026, 11, 19), teams_filter={"MEM"}
+        )
+        self.assertEqual({row["team"] for row in injuries}, {"MEM"})
+
+    def test_uses_espn_when_official_report_unavailable(self) -> None:
+        with mock.patch.object(
+            fetch_injuries,
+            "latest_report",
+            side_effect=fetch_injuries.InjuryFetchError("找不到傷病報告"),
+        ), mock.patch.object(
+            fetch_injuries.fetch_espn, "fetch_injuries", return_value=self.ESPN_ROWS
+        ), mock.patch.object(
+            fetch_injuries, "_save_snapshot"
+        ):
+            payload = fetch_injuries.fetch_injuries(self.GAMES, date(2026, 11, 19))
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["source"], "espn")
+        self.assertEqual(len(payload["injuries"]), 2)
+        self.assertIn("GSW", payload["by_team"])
+        self.assertTrue(any("ESPN" in message for message in payload["warnings"]))
+        # 官方報告不可用時，ESPN 是唯一來源，嚴重度仍需正確換算
+        self.assertAlmostEqual(payload["injuries"][0]["severity"], 1.0)
+
+    def test_espn_failure_keeps_empty_payload(self) -> None:
+        with mock.patch.object(
+            fetch_injuries,
+            "latest_report",
+            side_effect=fetch_injuries.InjuryFetchError("找不到傷病報告"),
+        ), mock.patch.object(
+            fetch_injuries.fetch_espn,
+            "fetch_injuries",
+            side_effect=fetch_espn.EspnFetchError("500"),
+        ):
+            payload = fetch_injuries.fetch_injuries(self.GAMES, date(2026, 11, 19))
+
+        self.assertFalse(payload["available"])
+        self.assertEqual(payload["injuries"], [])
+        self.assertTrue(
+            any("ESPN 傷兵名單無法取得" in msg for msg in payload["warnings"])
+        )
+
+
+class OfficialReportPriorityTests(unittest.TestCase):
+    """官方報告可用時，預設不呼叫 ESPN；開啟補漏才併用。"""
+
+    GAMES = [{"home_team": "MEM", "away_team": "GSW"}]
+
+    def _report(self) -> dict:
+        return {
+            "timestamp": datetime(2026, 11, 19, 17, 30, tzinfo=config.TZ_ET),
+            "url": "https://example.com/Injury-Report.pdf",
+            "dataframe": FakeFrame(
+                [
+                    {
+                        "Team": "Golden State Warriors",
+                        "Player Name": "Jimmy Butler III",
+                        "Current Status": "Out",
+                        "Reason": "Knee",
+                        "Game Date": "11/19/2026",
+                    }
+                ]
+            ),
+        }
+
+    def test_official_report_wins_without_calling_espn(self) -> None:
+        with mock.patch.object(
+            fetch_injuries, "latest_report", return_value=self._report()
+        ), mock.patch.object(fetch_injuries, "fetch_espn") as espn_module, mock.patch.object(
+            fetch_injuries, "_save_snapshot"
+        ):
+            payload = fetch_injuries.fetch_injuries(self.GAMES, date(2026, 11, 19))
+
+        espn_module.fetch_injuries.assert_not_called()
+        self.assertEqual(payload["source"], "nbainjuries")
+        self.assertEqual(len(payload["injuries"]), 1)
+        self.assertEqual(payload["injuries"][0]["source"], "nbainjuries")
+
+    def test_fill_missing_teams_merges_espn_when_enabled(self) -> None:
+        espn_rows = [
+            {
+                "team": "MEM",
+                "player": "Zach Edey",
+                "status": "Out",
+                "reason": "Ankle",
+                "updated_at": None,
+            },
+            {
+                "team": "GSW",
+                "player": "Jimmy Butler III",
+                "status": "Out",
+                "reason": "Knee",
+                "updated_at": None,
+            },
+            {
+                "team": "BOS",
+                "player": "Jayson Tatum",
+                "status": "Out",
+                "reason": "Achilles",
+                "updated_at": None,
+            },
+        ]
+        with mock.patch.object(
+            fetch_injuries, "latest_report", return_value=self._report()
+        ), mock.patch.object(
+            config, "ESPN_INJURY_FILL_MISSING_TEAMS", True
+        ), mock.patch.object(
+            fetch_injuries.fetch_espn, "fetch_injuries", return_value=espn_rows
+        ), mock.patch.object(
+            fetch_injuries, "_save_snapshot"
+        ):
+            payload = fetch_injuries.fetch_injuries(self.GAMES, date(2026, 11, 19))
+
+        self.assertEqual(payload["source"], "nbainjuries+espn")
+        self.assertEqual({row["team"] for row in payload["injuries"]}, {"GSW", "MEM"})
+        self.assertTrue(payload["espn_timestamp_utc"])
+        butler = next(
+            row for row in payload["injuries"] if row["player"] == "Jimmy Butler III"
+        )
+        self.assertEqual(butler["source"], "nbainjuries")  # 官方優先，不被 ESPN 覆蓋
+
+
+class RestClassificationTests(unittest.TestCase):
+    """輪休（rest）與傷病要分開標示。"""
+
+    def test_rest_reason_is_classified_as_rest(self) -> None:
+        frame = FakeFrame(
+            [
+                {
+                    "Team": "Boston Celtics",
+                    "Player Name": "Al Horford",
+                    "Current Status": "Out",
+                    "Reason": "Rest",
+                    "Game Date": "11/19/2026",
+                }
+            ]
+        )
+        injuries, _ = fetch_injuries.parse_report(
+            frame, [{"home_team": "BOS", "away_team": "NYK"}], date(2026, 11, 19)
+        )
+        self.assertEqual(injuries[0]["category"], "rest")
+        self.assertEqual(injuries[0]["status"], "out")
+        self.assertEqual(injuries[0]["source"], "nbainjuries")
+
+    def test_minutes_restriction_is_not_rest(self) -> None:
+        self.assertEqual(
+            fetch_injuries.injury_category("out", "Out", "Minutes restriction"),
+            "injury",
+        )
+        self.assertEqual(
+            fetch_injuries.injury_category("out", "Out", "Load Management"), "rest"
+        )
+        self.assertEqual(fetch_injuries.injury_category("out", "Out", "Ankle"), "injury")
+
+    def test_deduction_details_keep_category_and_site_marks_rest(self) -> None:
+        injuries = {
+            "BOS": [
+                {
+                    "player": "Al Horford",
+                    "status": "out",
+                    "status_raw": "Out",
+                    "reason": "Rest",
+                    "severity": 1.0,
+                    "category": "rest",
+                }
+            ]
+        }
+        summary = rating_engine.compute_injury_deductions(injuries, {})
+        detail = summary["BOS"]["injuries"][0]
+        self.assertEqual(detail["category"], "rest")
+
+        rest_html = build_site_module._injury_summary(
+            [{"player": "Al Horford", "deduction": 1.2, "category": "rest"}]
+        )
+        self.assertIn("輪休", rest_html)
+        injury_html = build_site_module._injury_summary(
+            [{"player": "Jayson Tatum", "deduction": 1.2, "category": "injury"}]
+        )
+        self.assertNotIn("輪休", injury_html)
+
+
 class InjurySnapshotTests(unittest.TestCase):
     def test_save_snapshot_writes_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1242,6 +1679,40 @@ class SiteBuildTests(unittest.TestCase):
             self.assertIn("尚無已回填賽果", html)
 
 
+    def test_build_site_marks_espn_injury_fallback_and_rest_players(self) -> None:
+        payload = _site_predictions_payload()
+        payload["injury_report"] = {
+            "source": "espn",
+            "available": True,
+            "report_timestamp_et": None,
+            "warnings": ["官方傷病報告不可用，已改用 ESPN 傷兵名單（2 筆）。"],
+        }
+        payload["predictions"][0]["home_injuries"] = [
+            {
+                "player": "Horford, Al",
+                "status": "out",
+                "deduction": 1.2,
+                "category": "rest",
+                "source": "espn",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            predictions_path = directory / "daily_predictions.json"
+            predictions_path.write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+            )
+            html = build_site_module.build_site(
+                directory / "index.html",
+                ratings_path=directory / "missing_ratings.json",
+                predictions_path=predictions_path,
+                history_path=directory / "missing_history.csv",
+            ).read_text(encoding="utf-8")
+
+        self.assertIn("傷兵名單：ESPN 備援", html)
+        self.assertIn("輪休", html)
+        self.assertNotIn("傷病報告：已取得", html)
+
     def test_build_site_handles_missing_data_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -1282,6 +1753,104 @@ class SiteBuildTests(unittest.TestCase):
             self.assertNotIn("<script>alert", html)
             self.assertNotIn("</script><", html)
             self.assertIn("&lt;script&gt;", html)
+
+
+class PostGameGuardTests(unittest.TestCase):
+    """賽前／賽後預測標記與命中率防護。"""
+
+    def setUp(self) -> None:
+        self.ratings = rating_engine.compute_team_ratings(_stats_payload())
+        self.game = {
+            "game_id": "0022600999",
+            "game_date": "2026-11-17",
+            "game_time_et": "19:30",
+            "game_time_utc": "2026-11-18T00:30:00+00:00",
+            "home_team": "BOS",
+            "away_team": "NYK",
+        }
+
+    def test_prediction_before_tipoff_is_marked_pre_game(self) -> None:
+        prediction = rating_engine.predict_game(
+            self.game,
+            self.ratings,
+            generated_at=datetime(2026, 11, 17, 12, 0, tzinfo=config.TZ_ET),
+        )
+        self.assertFalse(prediction["post_game"])
+        self.assertEqual(prediction["lead_time_minutes"], 450)
+        row = rating_engine.prediction_to_history_row(prediction)
+        self.assertEqual(row["post_game"], "false")
+
+    def test_prediction_after_tipoff_is_marked_post_game(self) -> None:
+        prediction = rating_engine.predict_game(
+            self.game,
+            self.ratings,
+            generated_at=datetime(2026, 11, 18, 3, 0, tzinfo=config.TZ_ET),
+        )
+        self.assertTrue(prediction["post_game"])
+        self.assertLess(prediction["lead_time_minutes"], 0)
+        row = rating_engine.prediction_to_history_row(prediction)
+        self.assertEqual(row["post_game"], "true")
+
+    def test_summarize_history_excludes_post_game_rows(self) -> None:
+        rows = [
+            {
+                "game_date": "2026-11-17",
+                "game_time_et": "19:30",
+                "actual_home_score": "110",
+                "actual_away_score": "100",
+                "result_correct": "true",
+                "post_game": "false",
+            },
+            {
+                "game_date": "2026-11-17",
+                "game_time_et": "20:00",
+                "actual_home_score": "90",
+                "actual_away_score": "99",
+                "result_correct": "true",
+                "post_game": "true",
+            },
+        ]
+        summary = build_site_module.summarize_history(rows)
+        self.assertEqual(summary["total_settled"], 1)
+        self.assertEqual(summary["post_game_excluded"], 1)
+        self.assertAlmostEqual(summary["accuracy"], 1.0)
+
+    def test_legacy_rows_without_flag_use_predicted_at(self) -> None:
+        rows = [
+            {
+                "game_date": "2026-11-17",
+                "game_time_et": "19:30",
+                "predicted_at": "2026-11-18T03:10:00+00:00",  # 開賽後
+                "actual_home_score": "110",
+                "actual_away_score": "100",
+                "result_correct": "true",
+            },
+            {
+                "game_date": "2026-11-17",
+                "game_time_et": "22:00",
+                "predicted_at": "2026-11-17T13:00:00+00:00",  # 開賽前
+                "actual_home_score": "90",
+                "actual_away_score": "99",
+                "result_correct": "false",
+            },
+        ]
+        summary = build_site_module.summarize_history(rows)
+        self.assertEqual(summary["post_game_excluded"], 1)
+        self.assertEqual(summary["total_settled"], 1)
+        self.assertAlmostEqual(summary["accuracy"], 0.0)
+
+    def test_should_keep_pre_game_when_new_run_is_post_game(self) -> None:
+        existing = {
+            "game_date": "2026-11-17",
+            "predictions": [{"game_id": "1", "post_game": False}],
+        }
+        payload = {
+            "game_date": "2026-11-17",
+            "predictions": [{"game_id": "1", "post_game": True}],
+        }
+        self.assertTrue(main_module._should_keep_pre_game(existing, payload))
+        payload["predictions"][0]["post_game"] = False
+        self.assertFalse(main_module._should_keep_pre_game(existing, payload))
 
 
 class HistorySummaryTests(unittest.TestCase):

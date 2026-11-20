@@ -23,7 +23,7 @@ import html
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -129,10 +129,38 @@ def _is_correct(row: dict) -> bool:
     return str(row.get("result_correct") or "").strip().lower() in ("true", "1", "yes")
 
 
+def _row_post_game(row: dict) -> bool:
+    """該筆預測是否在開賽後才產生（賽後預測不列入命中率）。
+
+    舊版 ``history_log.csv`` 沒有 ``post_game`` 欄位，此時用
+    ``predicted_at`` 與「比賽日 + 美東開賽時間」推算。
+    """
+    flag = str(row.get("post_game") or "").strip().lower()
+    if flag in ("true", "1", "yes"):
+        return True
+    if flag in ("false", "0", "no"):
+        return False
+    predicted_at = str(row.get("predicted_at") or "").strip()
+    game_date = str(row.get("game_date") or "").strip()
+    game_time = str(row.get("game_time_et") or "").strip()
+    if not predicted_at or not game_date or not game_time:
+        return False
+    try:
+        tipoff = datetime.fromisoformat(f"{game_date}T{game_time}:00").replace(
+            tzinfo=config.TZ_ET
+        )
+        predicted = datetime.fromisoformat(predicted_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if predicted.tzinfo is None:
+        predicted = predicted.replace(tzinfo=timezone.utc)
+    return predicted > tipoff
+
+
 def summarize_history(
     rows: Sequence[dict] | None, window: int = RECENT_DAYS_WINDOW
 ) -> dict:
-    """統計已回填賽果的整體與逐日命中率。"""
+    """統計已回填賽果的整體與逐日命中率（排除賽後才產生的預測）。"""
     settled = [dict(row) for row in (rows or []) if _has_result(row)]
     settled.sort(
         key=lambda row: (
@@ -140,6 +168,8 @@ def summarize_history(
             str(row.get("game_time_et") or ""),
         )
     )
+    excluded = sum(1 for row in settled if _row_post_game(row))
+    settled = [row for row in settled if not _row_post_game(row)]
     correct = sum(1 for row in settled if _is_correct(row))
 
     buckets: dict[str, dict] = {}
@@ -159,6 +189,7 @@ def summarize_history(
     recent_correct = sum(bucket["correct"] for bucket in days)
     return {
         "total_settled": len(settled),
+        "post_game_excluded": excluded,
         "total_correct": correct,
         "accuracy": (correct / len(settled)) if settled else 0.0,
         "recent_games": recent_games,
@@ -276,13 +307,14 @@ def _as_float(value: Any, default: float = 0.0) -> float:
 
 
 def _injury_summary(injuries: Sequence[dict] | None, limit: int = INJURY_NAMES_LIMIT) -> str:
-    """列出傷兵（依扣分排序，最多 ``limit`` 人）。"""
+    """列出傷兵（依扣分排序，最多 ``limit`` 人）；輪休另加標記。"""
     entries = [entry for entry in (injuries or []) if entry.get("player")]
     if not entries:
         return '<span class="sub">無</span>'
     entries.sort(key=lambda entry: _as_float(entry.get("deduction")), reverse=True)
     parts = [
         f'{_esc(entry.get("player"))}（{_num(entry.get("deduction"), 2)}）'
+        f'{"·輪休" if str(entry.get("category") or "").lower() == "rest" else ""}'
         for entry in entries[: max(int(limit), 1)]
     ]
     if len(entries) > limit:
@@ -314,15 +346,20 @@ def _render_predictions(predictions: dict | None) -> str:
     )
 
     injury_report = predictions.get("injury_report") or {}
+    source = str(injury_report.get("source") or "").strip()
     report_bits: list[str] = []
     if injury_report.get("available"):
-        report_bits.append("傷病報告：已取得")
+        report_bits.append(
+            "傷兵名單：ESPN 備援" if source == "espn" else "傷病報告：已取得"
+        )
         if injury_report.get("report_timestamp_et"):
             report_bits.append(f"報告時間 {_esc(injury_report.get('report_timestamp_et'))}")
     else:
         report_bits.append("傷病報告：不適用")
-    if injury_report.get("source"):
-        report_bits.append(f"來源 {_esc(injury_report.get('source'))}")
+    if source:
+        report_bits.append(f"來源 {_esc(source)}")
+    if any(game.get("post_game") for game in games):
+        report_bits.append("部分預測在開賽後才產生（不列入命中率）")
 
     body: list[str] = []
     for game in games:
@@ -392,7 +429,7 @@ def _render_warnings(warnings: Sequence[Any] | None) -> str:
 
 
 def _render_history(summary: dict) -> str:
-    if not summary.get("total_settled"):
+    if not summary.get("total_settled") and not summary.get("post_game_excluded"):
         return _empty_panel("尚無已回填賽果（history_log.csv 的 actual_* 仍為空）。")
 
     stats = "\n".join(
@@ -406,6 +443,11 @@ def _render_history(summary: dict) -> str:
             "</div>",
         ]
     )
+    excluded = int(summary.get("post_game_excluded") or 0)
+    if excluded:
+        stats += (
+            f'\n<p class="sub">另有 {excluded} 場是開賽後才產生的預測，已排除在命中率之外。</p>'
+        )
 
     rows = [
         "        <tr>"

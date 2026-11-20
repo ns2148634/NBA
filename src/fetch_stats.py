@@ -730,13 +730,11 @@ def _fetch_games_for_date_nba(
 # --------------------------------------------------------------------------
 # 球員數據（傷病影響分）
 # --------------------------------------------------------------------------
-def fetch_player_season_stats(
+def _fetch_player_season_stats_nba(
     season: str,
     season_type: str = config.SEASON_TYPE,
 ) -> list[dict]:
-    """抓取全聯盟球員場均數據並精簡欄位。"""
-    if not nba_api_available():
-        raise StatsFetchError("stats.nba.com 不可用，略過球員數據（傷兵改用預設佔比）。")
+    """以 stats.nba.com 抓取全聯盟球員場均數據並精簡欄位。"""
     endpoint = _endpoint("LeagueDashPlayerStats")
     api_params = {
         "season": season,
@@ -778,6 +776,48 @@ def fetch_player_season_stats(
             }
         )
     return normalized
+
+
+def _espn_player_season_stats(
+    season: str,
+    season_type: str,
+    warnings: list[str] | None = None,
+) -> list[dict]:
+    """改用 ESPN byathlete 端點取得球員場均數據（stats.nba.com 的替代來源）。"""
+    if not config.ESPN_PLAYER_STATS_FALLBACK_ENABLED:
+        raise StatsFetchError(
+            "stats.nba.com 不可用，且已停用 ESPN 球員數據備援"
+            "（config.ESPN_PLAYER_STATS_FALLBACK_ENABLED）。"
+        )
+    try:
+        rows = fetch_espn.fetch_player_season_stats(season, season_type)
+    except fetch_espn.EspnFetchError as exc:
+        raise StatsFetchError(
+            f"stats.nba.com 與 ESPN 皆無法取得球員數據：{exc}"
+        ) from exc
+    message = f"stats.nba.com 不可用，球員數據改用 ESPN 場均數據（{len(rows)} 人）。"
+    LOGGER.info(message)
+    if warnings is not None:
+        warnings.append(message)
+    return rows
+
+
+def fetch_player_season_stats(
+    season: str,
+    season_type: str = config.SEASON_TYPE,
+    warnings: list[str] | None = None,
+) -> list[dict]:
+    """球員場均數據：優先 nba_api，不可用或失敗時改用 ESPN byathlete。"""
+    if nba_api_available():
+        try:
+            return _fetch_player_season_stats_nba(season, season_type)
+        except StatsFetchError as exc:
+            if not config.ESPN_PLAYER_STATS_FALLBACK_ENABLED:
+                raise
+            LOGGER.warning("nba_api 球員數據失敗，改用 ESPN 備援：%s", exc)
+            if warnings is not None:
+                warnings.append(f"nba_api 球員數據失敗：{exc}")
+    return _espn_player_season_stats(season, season_type, warnings)
 
 
 # --------------------------------------------------------------------------

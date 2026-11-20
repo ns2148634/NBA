@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -193,6 +194,33 @@ def load_or_refresh_ratings(args: argparse.Namespace, season: str) -> dict:
     return run_base(args, season)
 
 
+def _load_existing_predictions() -> dict:
+    """讀取既有的 daily_predictions.json（讀不到就回傳空 dict）。"""
+    path = config.DAILY_PREDICTIONS_PATH
+    try:
+        if not path.exists():
+            return {}
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        LOGGER.warning("讀取既有預測檔失敗：%s", exc)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _should_keep_pre_game(existing: dict, payload: dict) -> bool:
+    """既有檔案是賽前預測、而本次全部是賽後預測時，保留既有賽前預測。"""
+    if not existing or existing.get("game_date") != payload.get("game_date"):
+        return False
+    old_games = existing.get("predictions") or []
+    new_games = payload.get("predictions") or []
+    if not old_games or not new_games:
+        return False
+    old_all_pre_game = all(not game.get("post_game") for game in old_games)
+    new_all_post_game = all(game.get("post_game") for game in new_games)
+    return old_all_pre_game and new_all_post_game
+
+
 def _persist_predictions(args: argparse.Namespace, payload: dict) -> None:
     if args.dry_run:
         LOGGER.info(
@@ -201,15 +229,30 @@ def _persist_predictions(args: argparse.Namespace, payload: dict) -> None:
             config.HISTORY_LOG_PATH,
         )
         return
-    rating_engine.write_json(config.DAILY_PREDICTIONS_PATH, payload)
-    history_rows = rating_engine.build_history_rows(payload)
+    persisted = payload
+    existing = _load_existing_predictions()
+    if _should_keep_pre_game(existing, payload):
+        message = (
+            f"{payload.get('game_date')} 的既有預測是賽前產生，"
+            "本次在開賽後才執行，因此保留賽前預測、不覆蓋（仍會回填賽果）。"
+        )
+        LOGGER.warning(message)
+        payload.setdefault("warnings", []).append(message)
+        persisted = existing
+        warnings = persisted.setdefault("warnings", [])
+        if message not in warnings:
+            warnings.append(message)
+        rating_engine.write_json(config.DAILY_PREDICTIONS_PATH, persisted)
+    else:
+        rating_engine.write_json(config.DAILY_PREDICTIONS_PATH, payload)
+    history_rows = rating_engine.build_history_rows(persisted)
     total_rows, written_rows = rating_engine.upsert_history(
         config.HISTORY_LOG_PATH, history_rows
     )
     LOGGER.info(
         "已寫入 %s（%d 場）與 history_log.csv（總計 %d 列，本次寫入 %d 列）",
         config.DAILY_PREDICTIONS_PATH,
-        payload.get("games_count") or 0,
+        persisted.get("games_count") or 0,
         total_rows,
         written_rows,
     )
@@ -299,7 +342,9 @@ def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dic
     if injuries.get("available"):
         try:
             player_rows = fetch_stats.fetch_player_season_stats(
-                season, args.season_type
+                season,
+                args.season_type,
+                warnings=injuries.setdefault("warnings", []),
             )
         except fetch_stats.StatsFetchError as exc:
             LOGGER.warning("球員數據抓取失敗，傷兵改用預設影響佔比：%s", exc)

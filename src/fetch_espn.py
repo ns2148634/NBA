@@ -22,10 +22,12 @@ import hashlib
 import json
 import logging
 import math
+import re
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlencode
 
 import requests
 
@@ -659,3 +661,203 @@ def fetch_games_for_date(
     games.sort(key=lambda game: (game.get("game_time_et") or "", game["game_id"]))
     LOGGER.info("ESPN 賽程：%s 共 %d 場", iso_date, len(games))
     return games
+
+
+# --------------------------------------------------------------------------
+# 傷兵名單與球員場均數據（stats.nba.com 不可用時的替代來源）
+# --------------------------------------------------------------------------
+ESPN_BYATHLETE_URL = (
+    "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba"
+    "/statistics/byathlete"
+)
+ESPN_INJURIES_URL = f"{ESPN_BASE}/injuries"
+
+#: ESPN byathlete 的統計名稱 -> 內部欄位（values 依 categories 的 names 對齊）
+ESPN_PLAYER_STAT_MAP: dict[str, str] = {
+    "gamesPlayed": "gp",
+    "avgMinutes": "min",
+    "avgPoints": "pts",
+    "avgRebounds": "reb",
+    "avgAssists": "ast",
+    "avgSteals": "stl",
+    "avgBlocks": "blk",
+    "avgTurnovers": "tov",
+}
+
+_ESPN_SEASON_TYPE_CODES = {
+    "pre season": 1,
+    "preseason": 1,
+    "regular season": 2,
+    "playoffs": 3,
+    "playoff": 3,
+    "all star": 4,
+}
+
+
+def _espn_season_type_code(season_type: str | None) -> int:
+    key = str(season_type or "").strip().lower()
+    return _ESPN_SEASON_TYPE_CODES.get(key, 2)
+
+
+def _player_category_values(payload: dict, athlete_entry: dict) -> dict[str, float]:
+    """依 ``categories`` 的 names 把單一球員的 values 轉成 {欄位: 數值}。"""
+    definitions = {
+        str(item.get("name")): item for item in payload.get("categories") or []
+    }
+    values: dict[str, float] = {}
+    for category in athlete_entry.get("categories") or []:
+        definition = definitions.get(str(category.get("name"))) or {}
+        names = [str(name) for name in definition.get("names") or []]
+        raw_values = category.get("values") or []
+        for index, name in enumerate(names):
+            if index >= len(raw_values):
+                break
+            number = _to_float(raw_values[index])
+            if number is not None:
+                values[name] = number
+    return values
+
+
+def _espn_athlete_team(athlete: dict) -> str | None:
+    """從 byathlete 的球員物件取出官方縮寫（ESPN 用 SA / NY / GS 等縮寫）。"""
+    teams = [team for team in athlete.get("teams") or [] if isinstance(team, dict)]
+    candidates: list[Any] = [athlete.get("teamShortName")]
+    candidates.extend(team.get("abbreviation") for team in teams)
+    for candidate in candidates:
+        if not candidate:
+            continue
+        abbreviation = str(candidate).strip().upper()
+        resolved = config.resolve_team(
+            ESPN_ABBREVIATION_ALIASES.get(abbreviation, abbreviation)
+        )
+        if resolved:
+            return resolved
+    return None
+
+
+def fetch_player_season_stats(
+    season: str,
+    season_type: str = config.SEASON_TYPE,
+) -> list[dict]:
+    """以 ESPN ``byathlete`` 端點取得全聯盟球員場均數據。
+
+    這是 stats.nba.com ``LeagueDashPlayerStats`` 的替代來源：一次請求就能取得
+    約 470~550 名球員的場均數據（ESPN 的 ``season`` 參數是球季結束年份），
+    輸出欄位與 :func:`src.fetch_stats.fetch_player_season_stats` 一致，
+    可直接餵給 :func:`src.rating_engine.compute_player_impacts`。
+    """
+    params: dict[str, str] = {
+        "region": "us",
+        "lang": "en",
+        "contentorigin": "espn",
+        "isqualified": "false",
+        "sort": "offensive.avgPoints:desc",
+        "season": str(espn_season_year(season)),
+        "seasontype": str(_espn_season_type_code(season_type)),
+        "limit": "1000",
+        "page": "1",
+    }
+
+    players: list[dict] = []
+    pages_fetched = 0
+    total_pages = 1
+    for page in range(1, 6):
+        params["page"] = str(page)
+        payload = _get_json(f"{ESPN_BYATHLETE_URL}?{urlencode(params)}")
+        pages_fetched += 1
+        total_pages = int((payload.get("pagination") or {}).get("pages") or 1)
+        for entry in payload.get("athletes") or []:
+            athlete = entry.get("athlete") or {}
+            name = str(athlete.get("displayName") or "").strip()
+            team = _espn_athlete_team(athlete)
+            if not name or not team:
+                continue
+            stats = _player_category_values(payload, entry)
+            row: dict[str, Any] = {
+                "player_id": int(_to_float(athlete.get("id")) or 0),
+                "name": name,
+                "team_abbrev": team,
+            }
+            for stat_name, key in ESPN_PLAYER_STAT_MAP.items():
+                row[key] = stats.get(stat_name, 0.0)
+            row["gp"] = int(row["gp"])
+            players.append(row)
+        if page >= total_pages:
+            break
+
+    if not players:
+        raise EspnFetchError("ESPN byathlete 查無球員場均數據。")
+    LOGGER.info(
+        "ESPN 球員場均數據：%d 人（%d/%d 頁）",
+        len(players),
+        pages_fetched,
+        max(total_pages, 1),
+    )
+    return players
+
+
+def _espn_athlete_id(athlete: dict) -> str | None:
+    """從 ESPN 球員連結（``.../player/_/id/12345/name``）取出球員 ID。"""
+    for link in athlete.get("links") or []:
+        href = str(link.get("href") or "")
+        if "/id/" not in href:
+            continue
+        match = re.match(r"\d+", href.split("/id/", 1)[1])
+        if match:
+            return match.group(0)
+    return None
+
+
+def _espn_injury_reason(injury: dict) -> str:
+    """組合 ESPN 傷病細節，例如 ``Right Hip Inflammation``。"""
+    details = injury.get("details") or {}
+    parts = [
+        str(details.get(key) or "").strip()
+        for key in ("side", "location", "type", "detail")
+    ]
+    reason = " ".join(dict.fromkeys(part for part in parts if part))
+    if reason:
+        return reason
+    return str(injury.get("shortComment") or injury.get("longComment") or "").strip()
+
+
+def fetch_injuries(ttl_hours: float | None = None) -> list[dict]:
+    """取得 ESPN 傷兵名單（全部球隊，未依比賽日篩選）。
+
+    回傳尚未正規化的列，狀態字串（``Out`` / ``Day-To-Day``）與嚴重度換算
+    交給 :func:`src.fetch_injuries.parse_espn_injuries`，避免循環匯入。
+    """
+    ttl = (
+        config.ESPN_INJURY_CACHE_TTL_HOURS if ttl_hours is None else float(ttl_hours)
+    )
+    payload = _get_json(ESPN_INJURIES_URL, ttl_hours=ttl)
+
+    rows: list[dict] = []
+    for block in payload.get("injuries") or []:
+        team = _resolve_team(block)
+        if team is None:
+            continue
+        for injury in block.get("injuries") or []:
+            athlete = injury.get("athlete") or {}
+            name = str(athlete.get("displayName") or "").strip()
+            if not name:
+                continue
+            updated = _parse_utc(injury.get("date"))
+            rows.append(
+                {
+                    "team": team,
+                    "player": name,
+                    "status": str(injury.get("status") or "").strip(),
+                    "reason": _espn_injury_reason(injury),
+                    "updated_at": config.to_iso(updated) if updated else None,
+                    "player_id": _espn_athlete_id(athlete),
+                }
+            )
+
+    if not rows:
+        raise EspnFetchError("ESPN 傷兵名單為空。")
+    LOGGER.info(
+        "ESPN 傷兵名單：%d 筆（%d 支球隊）", len(rows), len({row["team"] for row in rows})
+    )
+    return rows
+

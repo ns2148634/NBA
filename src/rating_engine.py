@@ -51,6 +51,7 @@ HISTORY_FIELDS: tuple[str, ...] = (
     "predicted_winner",
     "injury_details_json",
     "predicted_at",
+    "post_game",
     "actual_home_score",
     "actual_away_score",
     "actual_winner",
@@ -80,6 +81,20 @@ def _to_float(value: Any) -> float | None:
 
 def _round(value: float | None, digits: int = 2) -> float | None:
     return None if value is None else round(float(value), digits)
+
+
+def _parse_utc_iso(value: Any) -> datetime | None:
+    """解析 ``2026-11-18T00:30:00+00:00`` 這類時間字串（失敗回傳 ``None``）。"""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
 
 
 def compute_ema(values: Sequence[float], alpha: float) -> float | None:
@@ -434,6 +449,8 @@ def compute_injury_deductions(
                     "status": injury.get("status"),
                     "status_raw": injury.get("status_raw"),
                     "reason": injury.get("reason"),
+                    "category": injury.get("category") or "injury",
+                    "source": injury.get("source") or "nbainjuries",
                     "severity": round(severity, 2),
                     "impact_share": round(share, 4),
                     "matched": player is not None,
@@ -557,6 +574,12 @@ def predict_game(
     predicted_winner_name = home.get("name") if margin >= 0 else away.get("name")
 
     moment = generated_at or config.now_utc()
+    moment_utc = moment.astimezone(timezone.utc)
+    tipoff = _parse_utc_iso(game.get("game_time_utc"))
+    post_game = bool(tipoff is not None and moment_utc > tipoff)
+    lead_time_minutes = (
+        int(round((tipoff - moment_utc).total_seconds() / 60)) if tipoff else None
+    )
 
     return {
         "game_id": game.get("game_id"),
@@ -599,6 +622,8 @@ def predict_game(
             "pace": _round(game_pace),
         },
         "generated_at": config.to_iso(moment),
+        "post_game": post_game,
+        "lead_time_minutes": lead_time_minutes,
     }
 
 
@@ -761,6 +786,7 @@ def prediction_to_history_row(prediction: dict) -> dict:
             injury_details, ensure_ascii=False, separators=(",", ":")
         ),
         "predicted_at": prediction.get("generated_at"),
+        "post_game": "true" if prediction.get("post_game") else "false",
     }
 
 

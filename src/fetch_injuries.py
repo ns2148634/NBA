@@ -22,7 +22,7 @@ from typing import Any
 
 import requests
 
-from . import config
+from . import config, fetch_espn
 from .rating_engine import normalize_person_name
 
 LOGGER = logging.getLogger(__name__)
@@ -78,6 +78,25 @@ def normalize_status(raw_value: Any) -> tuple[str, float]:
             )
             return canonical, weight
     return "unknown", config.INJURY_STATUS_WEIGHTS["unknown"]
+
+
+#: 「策略性輪休」的判定樣式（用字界避免把 minutes restriction 誤判成 rest）
+_REST_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\brest\b"),
+    re.compile(r"load management"),
+)
+
+
+def injury_category(status: Any, status_raw: Any = None, reason: Any = None) -> str:
+    """區分「策略性輪休」（rest）與一般傷病（injury）。
+
+    官方報告有時只寫 ``Reason: Rest`` 而沒有傷勢，若不拆開會讓輪休看起來像受傷；
+    分類只用於標示與統計，嚴重度仍由 :func:`normalize_status` 決定。
+    """
+    text = " ".join(str(value or "") for value in (status, status_raw, reason)).lower()
+    if any(pattern.search(text) for pattern in _REST_PATTERNS):
+        return "rest"
+    return "injury"
 
 
 def _is_missing(value: Any) -> bool:
@@ -247,6 +266,7 @@ def parse_report(
         if severity <= 0:
             continue
         game_date = _parse_report_date(_value(row, _REPORT_DATE_KEYS))
+        reason = str(_value(row, _REPORT_REASON_KEYS) or "").strip()
         parsed.append(
             {
                 "team": team,
@@ -255,9 +275,11 @@ def parse_report(
                 "status": status,
                 "status_raw": str(status_raw or "").strip(),
                 "severity": severity,
-                "reason": str(_value(row, _REPORT_REASON_KEYS) or "").strip(),
+                "reason": reason,
                 "game_date": game_date.isoformat() if game_date else None,
                 "matchup": str(_value(row, _REPORT_MATCHUP_KEYS) or "").strip(),
+                "category": injury_category(status, status_raw, reason),
+                "source": "nbainjuries",
             }
         )
 
@@ -287,6 +309,127 @@ def parse_report(
         key=lambda item: (item["team"], -item["severity"], item["player"]),
     )
     return injuries, warnings
+
+
+def parse_espn_injuries(
+    rows: list[dict] | None,
+    games: list[dict],
+    target_date: date,
+    teams_filter: set[str] | None = None,
+) -> tuple[list[dict], list[str]]:
+    """把 ESPN 傷兵名單轉成與官方報告相同的結構（僅保留當日出賽球隊）。"""
+    warnings: list[str] = []
+    today_teams = {game["home_team"] for game in games} | {
+        game["away_team"] for game in games
+    }
+    if teams_filter is not None:
+        today_teams &= {team for team in teams_filter if team}
+        if not today_teams:
+            return [], ["ESPN 傷兵名單與指定球隊沒有交集。"]
+
+    deduped: dict[tuple[str, str], dict] = {}
+    for raw in rows or []:
+        team = config.resolve_team(raw.get("team"))
+        if team is None or team not in today_teams:
+            continue
+        player = str(raw.get("player") or "").strip()
+        if not player:
+            continue
+        status_raw = raw.get("status")
+        status, severity = normalize_status(status_raw)
+        if severity <= 0:
+            continue
+        reason = str(raw.get("reason") or "").strip()
+        entry = {
+            "team": team,
+            "team_name": config.team_display_name(team),
+            "player": player,
+            "status": status,
+            "status_raw": str(status_raw or "").strip(),
+            "severity": severity,
+            "reason": reason,
+            "game_date": target_date.isoformat(),
+            "matchup": "",
+            "category": injury_category(status, status_raw, reason),
+            "source": "espn",
+            "updated_at": raw.get("updated_at"),
+        }
+        key = (team, normalize_person_name(player))
+        existing = deduped.get(key)
+        if existing is None or entry["severity"] > existing["severity"]:
+            deduped[key] = entry
+
+    injuries = sorted(
+        deduped.values(),
+        key=lambda item: (item["team"], -item["severity"], item["player"]),
+    )
+    if not injuries:
+        warnings.append("ESPN 傷兵名單沒有當日出賽球隊的資料。")
+    return injuries, warnings
+
+
+def _merge_espn_injuries(
+    injuries: list[dict],
+    games: list[dict],
+    target_date: date,
+    payload: dict,
+    official_available: bool,
+) -> tuple[list[dict], str]:
+    """官方報告不可用（或啟用補漏）時，改用／併用 ESPN 傷兵名單。"""
+    playing = {game["home_team"] for game in games} | {
+        game["away_team"] for game in games
+    }
+    covered = {row["team"] for row in injuries}
+    missing = playing - covered
+
+    if official_available:
+        if not config.ESPN_INJURY_FILL_MISSING_TEAMS or not missing:
+            return injuries, "nbainjuries"
+    elif not config.ESPN_INJURY_FALLBACK_ENABLED:
+        return injuries, "nbainjuries"
+
+    try:
+        rows = fetch_espn.fetch_injuries()
+    except Exception as exc:  # noqa: BLE001 - ESPN 失敗只記警告
+        LOGGER.warning("ESPN 傷兵名單不可用：%s", exc)
+        payload["warnings"].append(f"ESPN 傷兵名單無法取得：{exc}")
+        return injuries, "nbainjuries"
+
+    teams_filter = missing if official_available else None
+    espn_rows, warnings = parse_espn_injuries(
+        rows, games, target_date, teams_filter=teams_filter
+    )
+    payload["warnings"].extend(warnings)
+    if official_available:
+        existing = {
+            (row["team"], normalize_person_name(row.get("player"))) for row in injuries
+        }
+        added = [
+            row
+            for row in espn_rows
+            if (row["team"], normalize_person_name(row.get("player"))) not in existing
+        ]
+    else:
+        added = espn_rows
+    if not added:
+        return injuries, "nbainjuries"
+
+    payload["espn_timestamp_utc"] = config.to_iso(config.now_utc())
+    if official_available:
+        payload["warnings"].append(
+            f"官方傷病報告缺少 {len(missing)} 支當日出賽球隊的資料，"
+            f"已用 ESPN 補上 {len(added)} 筆傷兵。"
+        )
+        source = "nbainjuries+espn"
+    else:
+        payload["warnings"].append(
+            f"官方傷病報告不可用，已改用 ESPN 傷兵名單（{len(added)} 筆）。"
+        )
+        source = "espn"
+
+    merged = injuries + added
+    merged.sort(key=lambda item: (item["team"], -item["severity"], item["player"]))
+    return merged, source
 
 
 def _save_snapshot(injuries: list[dict], timestamp_et: datetime) -> None:
@@ -319,44 +462,75 @@ def fetch_injuries(
     target_date: date,
     now_et: datetime | None = None,
 ) -> dict:
-    """取得當日傷兵資料；任何失敗都只回報警告，不中斷預測流程。"""
+    """取得當日傷兵資料；任何失敗都只回報警告，不中斷預測流程。
+
+    來源優先序：官方傷病報告 PDF（nbainjuries）→ ESPN 傷兵名單。
+
+    * 官方報告完全抓不到時，改用 ESPN（``config.ESPN_INJURY_FALLBACK_ENABLED``）。
+    * 官方報告可用時預設不混用；若開啟
+      ``config.ESPN_INJURY_FILL_MISSING_TEAMS``，才用 ESPN 補「當日出賽但報告
+      完全沒有傷兵資料」的球隊。
+    """
     payload: dict = {
         "source": "nbainjuries",
         "available": False,
         "report_timestamp_et": None,
         "report_url": None,
+        "espn_timestamp_utc": None,
         "warnings": [],
         "injuries": [],
         "by_team": {},
     }
 
+    report: dict | None = None
     try:
         report = latest_report(now_et)
     except InjuryFetchError as exc:
         LOGGER.warning("傷病資料不可用：%s", exc)
         payload["warnings"].append(str(exc))
-        return payload
 
-    injuries, warnings = parse_report(report["dataframe"], games, target_date)
-    payload.update(
-        {
-            "available": True,
-            "report_timestamp_et": report["timestamp"].isoformat(timespec="minutes"),
-            "report_url": report["url"],
-            "warnings": warnings,
-            "injuries": injuries,
-        }
+    injuries: list[dict] = []
+    if report is not None:
+        injuries, warnings = parse_report(report["dataframe"], games, target_date)
+        payload.update(
+            {
+                "available": True,
+                "report_timestamp_et": report["timestamp"].isoformat(
+                    timespec="minutes"
+                ),
+                "report_url": report["url"],
+                "warnings": warnings,
+            }
+        )
+
+    injuries, source = _merge_espn_injuries(
+        injuries,
+        games,
+        target_date,
+        payload,
+        official_available=report is not None,
     )
+    payload["source"] = source
+    payload["injuries"] = injuries
+    payload["available"] = bool(report is not None or injuries)
 
     by_team: dict[str, list[dict]] = {}
     for injury in injuries:
         by_team.setdefault(injury["team"], []).append(injury)
     payload["by_team"] = by_team
 
-    _save_snapshot_guarded(injuries, report["timestamp"])
+    if injuries:
+        snapshot_time = (
+            report["timestamp"]
+            if report is not None
+            else config.now_utc().astimezone(config.TZ_ET)
+        )
+        _save_snapshot_guarded(injuries, snapshot_time)
+
     LOGGER.info(
-        "傷病報告解析完成：%d 筆（%d 支球隊）",
+        "傷病資料解析完成：%d 筆（%d 支球隊，來源 %s）",
         len(injuries),
         len(by_team),
+        source,
     )
     return payload

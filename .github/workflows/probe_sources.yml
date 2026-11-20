@@ -36,3 +36,5 @@ jobs:
           probe "espn scoreboard" "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=20261117"
           probe "espn team stats" "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/statistics/team?region=us&lang=en&contentorigin=espn&isqualified=true"
           probe "espn core teams" "https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/seasons/2026/types/2/groups/2/teams?limit=40"
+          probe "espn injuries" "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries"
+          probe "espn player stats (byathlete)" "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/statistics/byathlete?region=us&lang=en&contentorigin=espn&isqualified=false&sort=offensive.avgPoints:desc&season=2027&seasontype=2&limit=1000&page=1"

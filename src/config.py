@@ -306,6 +306,16 @@ SOURCE_HEALTH_TTL_SECONDS = 1800
 ESPN_FALLBACK_ENABLED = True
 #: ESPN 備援缺少 ORtg/DRtg/Pace，改用「聯盟平均每隊每場得分」作為換算基準
 ESPN_FALLBACK_PACE = 114.0
+#: stats.nba.com 不可用時，是否改用 ESPN byathlete 端點取得球員場均數據
+#: （傷兵影響分需要球員數據，否則只能套用 DEFAULT_UNKNOWN_PLAYER_SHARE）
+ESPN_PLAYER_STATS_FALLBACK_ENABLED = True
+#: 官方傷病報告完全抓不到時，是否改用 ESPN 傷兵名單（site.api.espn.com/.../injuries）
+ESPN_INJURY_FALLBACK_ENABLED = True
+#: 官方報告可用時，是否再用 ESPN 補「當日出賽但報告完全沒有傷兵資料」的球隊。
+#: 預設關閉：ESPN 名單含長期傷兵，官方報告只列登錄名單，貿然補會多扣分。
+ESPN_INJURY_FILL_MISSING_TEAMS = False
+#: ESPN 傷兵名單快取時數（名單一天會更新多次，但不需要太即時）
+ESPN_INJURY_CACHE_TTL_HOURS = 1
 
 #: 預設 log 等級（可被 --log-level 覆寫）
 LOG_LEVEL = "INFO"

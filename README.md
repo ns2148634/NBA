@@ -4,7 +4,7 @@
 
 1. 用 [`nba_api`](https://github.com/swar/nba_api) 抓取 30 隊球季／近 10 場進階數據與逐場比分；若 `stats.nba.com` 不可用（雲端 CI 常被 Akamai 封鎖），自動改用 ESPN 公開 API 備援。
 2. 計算 0–100 制的**基礎戰力分**（50 = 聯盟平均，分數差 ≈ 預期分差）。
-3. 用 [`nbainjuries`](https://github.com/maobvious/nbainjuries) 抓取當日官方傷病報告，換算**傷病扣分**。
+3. 用 [`nbainjuries`](https://github.com/maobvious/nbainjuries) 抓取當日官方傷病報告，換算**傷病扣分**；官方報告抓不到時改用 ESPN 傷兵名單。
 4. 產出當日每場比賽的**勝負、比分、勝率、總分**預測，寫入 `data/`。
 5. 之後用實際比分**回填歷史命中率**，形成可追蹤的預測紀錄。
 
@@ -32,14 +32,14 @@ NBA/
 │  ├─ __init__.py
 │  ├─ config.py                   # 參數、30 隊對照表、時區、路徑
 │  ├─ fetch_stats.py              # nba_api 抓取層（快取 / 重試 / 正規化 / ESPN 備援切換）
-│  ├─ fetch_espn.py               # ESPN 公開 API 備援（當日賽程 + 逐場比分換算）
+│  ├─ fetch_espn.py               # ESPN 公開 API 備援（賽程、逐場比分、球員場均、傷兵名單）
 │  ├─ fetch_injuries.py           # nbainjuries 抓取層（15 分鐘粒度探測）
 │  ├─ rating_engine.py            # 評分、傷病扣分、預測、JSON/CSV IO
 │  ├─ build_site.py               # 產生 docs/index.html（純本地渲染，不連網）
 │  └─ main.py                     # CLI 入口（base / predict / both / settle）
 ├─ tests/
 │  ├─ __init__.py
-│  └─ test_offline.py             # 40 個離線測試（合成資料，不需網路）
+│  └─ test_offline.py             # 61 個離線測試（合成資料，不需網路）
 ├─ requirements.txt
 └─ README.md
 ```
@@ -93,7 +93,7 @@ python -m src.build_site
 系統會依下列順序取資料，並把實際來源寫進輸出的 `data_source` 欄位：
 
 1. **nba_api（`stats.nba.com`）**：首選來源，提供真實的 `ORtg / DRtg / Pace`。
-2. **ESPN 公開 API（`site.api.espn.com`）**：自動備援，提供當日賽程與 30 隊逐場比分。
+2. **ESPN 公開 API（`site.api.espn.com` / `site.web.api.espn.com`）**：自動備援，提供當日賽程、30 隊逐場比分、球員場均數據與傷兵名單。
 
 切換時機會由 `fetch_stats.nba_api_available()` 判斷（單一 process 內快取 30 分鐘）：
 
@@ -112,9 +112,22 @@ ESPN 備援的計算方式（`src/fetch_espn.py`）：
 | `pace`（代理） | 聯盟平均「每隊每場得分」（約 113–114） |
 | `off_rating` / `def_rating`（代理） | `100 × 每場得分 ÷ pace`、`100 × 每場失分 ÷ pace` |
 | 近 10 場 | 各隊最近 10 場得分／失分，用同一基準換算 |
+| 球員場均數據 | `statistics/byathlete`（1 次請求、約 470–550 人），取代 `LeagueDashPlayerStats` |
+| 傷兵名單 | `site.api.espn.com/.../nba/injuries`（1 次請求，1 小時快取） |
 
 因為 ESPN 沒有回合數，`ORtg / DRtg / Pace` 是**代理值**，`warnings` 會明確標示；
 但「分差 ↔ 每 100 回合」的換算前後一致，所以 `base_rating`、預測比分與總分仍然可用。
+
+傷兵與球員數據的備援由三個開關控制：
+
+| 設定 | 預設 | 說明 |
+| --- | --- | --- |
+| `ESPN_PLAYER_STATS_FALLBACK_ENABLED` | `True` | `stats.nba.com` 抓不到球員場均數據時，改用 ESPN `byathlete`；傷病扣分仍依真實影響佔比計算（不再一律 0.03） |
+| `ESPN_INJURY_FALLBACK_ENABLED` | `True` | 官方傷病報告 PDF 完全抓不到時，改用 ESPN 傷兵名單（`Out` / `Day-To-Day` 對應同一組 severity） |
+| `ESPN_INJURY_FILL_MISSING_TEAMS` | `False` | 官方報告可用時，是否再用 ESPN 補「當日出賽但報告完全沒有傷兵」的球隊；預設關閉，避免把長期傷兵算進來 |
+
+`injury_report.source` 會標示實際來源（`nbainjuries` / `nbainjuries+espn` / `espn`），
+每一筆傷兵也有自己的 `source` 欄位，相關說明會寫進 `injury_report.warnings`。
 
 想強制停用備援（例如要確認 nba_api 是否真的可用），把 `src/config.py` 的
 `ESPN_FALLBACK_ENABLED` 設為 `False` 即可。需要診斷網路時，可手動執行
@@ -172,6 +185,11 @@ deduction = share × severity × 16.0 × 0.65     # 單隊上限 12 分
 
 * 姓名比對：去重音、處理 `Last, First`、同隊同姓需完整姓名相似度 ≥ 0.95；查無資料的傷兵以預設佔比 0.03 計算。
 * 傷病報告只保留**當日出賽球隊**，同一球員重複出現時取最嚴重狀態。
+* 每筆傷兵都會標記 `category`：`rest`（`Reason: Rest` / `Load Management`）或 `injury`；
+  靜態頁會在輪休球員後面加上「·輪休」。分類只影響標示，severity 仍由狀態決定
+  （`Out` + `Rest` 代表該場確定不打，仍以 1.00 計算）。
+* 資料來源優先序：官方傷病報告 →（報告不可用時）ESPN 傷兵名單；官方報告可用時
+  預設不混用，可用 `ESPN_INJURY_FILL_MISSING_TEAMS` 開啟補漏。
 * 傷病也會輕微下修總分：`total −= 0.5 × (兩隊扣分合計)`。
 
 ### 3.3 賽果預測
@@ -282,6 +300,8 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
       "game_date": "2026-11-17",
       "game_time_et": "19:30",
       "game_time_taipei": "2026-11-18T08:30+08:00",
+      "post_game": false,
+      "lead_time_minutes": 450,
       "home_team": "BOS",
       "away_team": "NYK",
       "home_rating": 58.42,
@@ -323,6 +343,12 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 }
 ```
 
+`post_game`：預測產生時間晚於實際開球時間（`game_time_utc`）時為 `true`；
+`lead_time_minutes` 是距離開球的提前分鐘數（負值代表已開打）。
+
+> 賽後才產生的預測**不會覆蓋**同日既有的賽前預測（`main._should_keep_pre_game`），
+> 也不會計入命中率；靜態頁會標示「部分預測在開賽後才產生（不列入命中率）」。
+
 ### 4.3 `data/history_log.csv`
 
 固定欄位順序，以 `(game_date, game_id)` 為唯一鍵 upsert：
@@ -338,10 +364,12 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 | `home_win_prob`, `away_win_prob`, `predicted_winner` | 預測勝負 |
 | `injury_details_json` | 傷兵明細（compact JSON） |
 | `predicted_at` | 預測產生時間 |
+| `post_game` | `true` = 開賽後才產生的預測（不計入命中率） |
 | `actual_home_score`, `actual_away_score`, `actual_winner`, `result_correct` | 賽後回填 |
 
 * 重跑預測**不會**覆蓋已回填的 `actual_*` / `result_correct`。
 * `settle` 與每次 `predict` 結束時都會嘗試回填，重複執行為 idempotent。
+* 舊資料沒有 `post_game` 欄位時，會用 `predicted_at` 與「比賽日 + `game_time_et`」推算。
 
 ---
 
@@ -350,8 +378,11 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 | 工作流 | 排程（UTC） | 台灣時間 | 內容 |
 | --- | --- | --- | --- |
 | `A - Update Base Ratings` | `0 7 * * *` | 15:00 | 更新 `team_ratings.json` + 重建靜態頁 |
-| `B - Daily Injury & Prediction` | `30 22 * * *` | 隔日 06:30 | 傷病 + 預測 + 賽果回填 + 重建靜態頁 |
+| `B - Daily Injury & Prediction` | `0 11 * * *` | 19:00 | 主執行：傷病 + 賽前預測 + 賽果回填 + 重建靜態頁 |
+| `B - Daily Injury & Prediction` | `30 22 * * *` | 隔日 06:30 | 備援／回填：若當天已存在賽前預測則不覆蓋 |
 
+* GitHub 排程常有 5–9 小時延遲，因此主執行放在美東清晨（約 06:00）以確保仍早於晚間開賽；
+  真的延遲到開打後才跑，程式會標記 `post_game` 並保留既有的賽前預測。
 * 兩者共用 `concurrency: nba-data-write`，避免同時改寫 `data/`。
 * `permissions: contents: write`，commit 身分為 `github-actions[bot]`。
 * 兩支工作流都會在資料更新後執行 `python -m src.build_site`，並以 `git add data/ docs/` 一起提交，讓 Pages 內容與資料同步。
@@ -394,7 +425,7 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 python -m unittest discover -s tests -t . -v
 ```
 
-40 個離線測試（不需網路、不需 pandas）涵蓋：
+61 個離線測試（不需網路、不需 pandas）涵蓋：
 
 * EMA、收縮、25–75 夾限、`base_rating = 50 + expected_margin`
 * 傷病影響佔比、姓名正規化與同姓球員比對、狀態嚴重度、12 分上限
@@ -403,7 +434,11 @@ python -m unittest discover -s tests -t . -v
 * 預測總分區間、比分加總與分差一致性、勝率範圍與加總
 * 賽程正規化（UTC → ET）、熱身賽過濾、休息天數、`ScoreboardV3` 備援欄位
 * ESPN 備援：縮寫別名對照（`NY/GS/NO/SA/WSH`）、賽事正規化、`pace` 代理換算、逐場 log 去重、休息天數、自動切換與警告
+* ESPN 球員場均（`byathlete`）欄位對齊與參數、空回應報錯、`fetch_player_season_stats` 的 nba_api → ESPN 備援與停用開關
+* ESPN 傷兵名單：球隊／日期過濾、狀態正規化、官方報告優先（不呼叫 ESPN）、`ESPN_INJURY_FILL_MISSING_TEAMS` 補漏與去重
+* 輪休分類（`Rest` / `Load Management` 為 `rest`、`Minutes restriction` 不算）與靜態頁「·輪休」標記
 * `history_log.csv` upsert 冪等性、賽果回填、重跑不覆蓋賽果
+* 賽前／賽後判定（`post_game`、`lead_time_minutes`）、賽後預測不覆蓋賽前預測、命中率排除賽後預測（含舊資料以 `predicted_at` 推算）
 * 傷病快照寫入、快照失敗不影響預測、`--mode predict` 在「有傷兵但無球員數據」時仍能產出扣分
 * 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計只計已回填場次
 
@@ -416,7 +451,7 @@ python -m unittest discover -s tests -t . -v
 * `stats.nba.com` 有速率限制：內建 3 次重試與 5/10 秒退避；API 回應快取 6 小時（`.cache/`）。
 * `stats.nba.com` 若被 Akamai 封鎖（GitHub Actions 常見），系統會自動改用 ESPN 備援，並在 `data_source` 標成 `espn`；此時 `ORtg / DRtg / Pace` 是逐場比分換算的代理值。
 * `docs/index.html` 是 **產生檔**，請修改 `src/build_site.py` 後重新執行 `python -m src.build_site`，不要手動編輯。
-* ESPN 備援模式下無法取得球員場均數據，傷病扣分會改用 `DEFAULT_UNKNOWN_PLAYER_SHARE`（每位傷兵固定佔比），`daily_predictions.json` 的 `injury_report.warnings` 會標示；若需要依球星影響力計算扣分，請在可連線 `stats.nba.com` 的環境執行。靜態頁也會顯示「espn 備援（代理指標）」徽章。
+* ESPN 備援模式下，球員場均數據也改由 ESPN `byathlete` 取得，傷病扣分仍依球星影響佔比計算；只有 ESPN 也失敗時才退回 `DEFAULT_UNKNOWN_PLAYER_SHARE`（每位傷兵固定佔比），並在 `injury_report.warnings` 標示。靜態頁會顯示「espn 備援（代理指標）」徽章。
 * `ScoreboardV3` 備援依賴 `gameCode`（`YYYYMMDD/AWAYHOME`）判斷主客；若官方格式變動，會退回 `line_score` 的「客隊在前、主隊在後」順序。
 * `python -m src.main` 在結束時會 flush log 後呼叫 `os._exit()`：`nbainjuries` / `tabula-py` 會留下非 daemon 執行緒與 Java 子程序，若不強制結束，CI 會卡在 interpreter shutdown（直接呼叫 `main()` 的單元測試不受影響）。
 * 若在本機 Windows 看到 `DLL load failed while importing _common: 應用程式控制原則已封鎖此檔案`，代表系統的應用程式控制（WDAC / Smart App Control）封鎖了 numpy 的 DLL；此為環境限制，請改用 GitHub Actions（Ubuntu）或調整系統政策。本專案的核心模組與測試不依賴 pandas，可在受限環境下正常執行。
