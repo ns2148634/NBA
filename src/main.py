@@ -221,6 +221,39 @@ def _should_keep_pre_game(existing: dict, payload: dict) -> bool:
     return old_all_pre_game and new_all_post_game
 
 
+def _merge_pre_game_rows(existing: dict, payload: dict) -> list[str]:
+    """逐場保留先前的賽前預測，回傳被保留的 ``game_id`` 清單。
+
+    只有「本次在開賽後才產生、而既有檔案是賽前產生」的場次會被換回舊資料，
+    其餘場次一律採用本次結果。保留舊 dict 可一併保住它自己的 ``generated_at``，
+    讓 ``history_log.csv`` 的 ``predicted_at`` 不會被改寫成賽後時間。
+    """
+    if not existing or existing.get("game_date") != payload.get("game_date"):
+        return []
+    previous = {
+        str(game.get("game_id") or ""): game
+        for game in existing.get("predictions") or []
+        if game.get("game_id")
+    }
+    if not previous:
+        return []
+
+    kept: list[str] = []
+    merged: list[dict] = []
+    for game in payload.get("predictions") or []:
+        game_id = str(game.get("game_id") or "")
+        before = previous.get(game_id)
+        if before is not None and game.get("post_game") and not before.get("post_game"):
+            merged.append(before)
+            kept.append(game_id)
+        else:
+            merged.append(game)
+    if kept:
+        payload["predictions"] = merged
+        payload["games_count"] = len(merged)
+    return kept
+
+
 def _persist_predictions(args: argparse.Namespace, payload: dict) -> None:
     if args.dry_run:
         LOGGER.info(
@@ -244,6 +277,14 @@ def _persist_predictions(args: argparse.Namespace, payload: dict) -> None:
             warnings.append(message)
         rating_engine.write_json(config.DAILY_PREDICTIONS_PATH, persisted)
     else:
+        kept = _merge_pre_game_rows(existing, payload)
+        if kept:
+            message = (
+                f"{payload.get('game_date')} 有 {len(kept)} 場在開賽後才執行，"
+                "已保留先前的賽前預測（賽果仍會回填）。"
+            )
+            LOGGER.warning(message)
+            payload.setdefault("warnings", []).append(message)
         rating_engine.write_json(config.DAILY_PREDICTIONS_PATH, payload)
     history_rows = rating_engine.build_history_rows(persisted)
     total_rows, written_rows = rating_engine.upsert_history(

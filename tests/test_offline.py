@@ -880,6 +880,133 @@ class MainFlowTests(unittest.TestCase):
             self.assertEqual(len(history), 1)
             self.assertEqual(history[0]["post_game"], "false")
 
+    def test_mixed_run_keeps_pre_game_rows_for_started_games(self) -> None:
+        early = {
+            "game_id": "0022600996",
+            "game_date": "2026-11-17",
+            "game_time_et": "19:30",
+            "game_time_utc": "2026-11-18T00:30:00+00:00",
+            "game_time_taipei": "2026-11-18T08:30+08:00",
+            "home_team": "BOS",
+            "away_team": "NYK",
+            "home_rest_days": 1,
+            "away_rest_days": 1,
+            "home_b2b": False,
+            "away_b2b": False,
+            "is_neutral": False,
+            "status": 1,
+        }
+        late = dict(
+            early,
+            game_id="0022600995",
+            game_time_et="22:00",
+            game_time_utc="2026-11-18T03:00:00+00:00",
+            game_time_taipei="2026-11-18T11:00+08:00",
+        )
+        pre_game = {
+            "schema_version": 1,
+            "season": "2026-27",
+            "game_date": "2026-11-17",
+            "generated_at": "2026-11-17T11:00:00+00:00",
+            "games_count": 2,
+            "warnings": [],
+            "predictions": [
+                {
+                    "game_id": "0022600996",
+                    "game_date": "2026-11-17",
+                    "game_time_et": "19:30",
+                    "home_team": "BOS",
+                    "away_team": "NYK",
+                    "predicted_winner": "NYK",
+                    "generated_at": "2026-11-17T11:00:00+00:00",
+                    "post_game": False,
+                },
+                {
+                    "game_id": "0022600995",
+                    "game_date": "2026-11-17",
+                    "game_time_et": "22:00",
+                    "home_team": "BOS",
+                    "away_team": "NYK",
+                    "predicted_winner": "LAL",
+                    "generated_at": "2026-11-17T11:00:00+00:00",
+                    "post_game": False,
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            predictions_path = directory / "daily_predictions.json"
+            history_path = directory / "history_log.csv"
+            predictions_path.write_text(
+                json.dumps(pre_game, ensure_ascii=False), encoding="utf-8"
+            )
+            with mock.patch.object(
+                config, "TEAM_RATINGS_PATH", directory / "team_ratings.json"
+            ), mock.patch.object(
+                config, "DAILY_PREDICTIONS_PATH", predictions_path
+            ), mock.patch.object(
+                config, "HISTORY_LOG_PATH", history_path
+            ), mock.patch.object(
+                config,
+                "now_utc",
+                return_value=datetime(2026, 11, 17, 21, 0, tzinfo=config.TZ_ET),
+            ), mock.patch.object(
+                fetch_stats, "fetch_all_team_stats", return_value=_stats_payload()
+            ), mock.patch.object(
+                fetch_stats,
+                "fetch_games_for_date",
+                return_value={"games": [early, late], "schedule": [], "warnings": []},
+            ), mock.patch.object(
+                fetch_stats, "fetch_team_game_log", return_value=[]
+            ), mock.patch.object(
+                fetch_injuries,
+                "fetch_injuries",
+                return_value={
+                    "source": "test",
+                    "available": False,
+                    "warnings": [],
+                    "by_team": {},
+                },
+            ):
+                exit_code = main_module.main(
+                    [
+                        "--mode",
+                        "predict",
+                        "--date",
+                        "2026-11-17",
+                        "--season",
+                        "2026-27",
+                        "--log-level",
+                        "ERROR",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(predictions_path.read_text(encoding="utf-8"))
+            started, upcoming = payload["predictions"]
+            # 已開打的場次保留賽前預測（含原本的產生時間）
+            self.assertEqual(started["game_id"], "0022600996")
+            self.assertEqual(started["predicted_winner"], "NYK")
+            self.assertEqual(started["generated_at"], "2026-11-17T11:00:00+00:00")
+            self.assertFalse(started["post_game"])
+            # 還沒開打的場次採用本次結果
+            self.assertEqual(upcoming["game_id"], "0022600995")
+            self.assertNotEqual(upcoming["predicted_winner"], "LAL")
+            self.assertEqual(upcoming["generated_at"], "2026-11-18T02:00:00+00:00")
+            self.assertTrue(
+                any("保留先前的賽前預測" in message for message in payload["warnings"])
+            )
+
+            history = {
+                row["game_id"]: row for row in rating_engine.read_history(history_path)
+            }
+            self.assertEqual(len(history), 2)
+            self.assertEqual(history["0022600996"]["post_game"], "false")
+            self.assertEqual(
+                history["0022600996"]["predicted_at"], "2026-11-17T11:00:00+00:00"
+            )
+            self.assertEqual(history["0022600995"]["post_game"], "false")
+
 
 def _espn_team(abbreviation: str) -> dict:
     return {
@@ -1851,6 +1978,50 @@ class PostGameGuardTests(unittest.TestCase):
         self.assertTrue(main_module._should_keep_pre_game(existing, payload))
         payload["predictions"][0]["post_game"] = False
         self.assertFalse(main_module._should_keep_pre_game(existing, payload))
+
+    def test_merge_keeps_previous_rows_for_started_games(self) -> None:
+        existing = {
+            "game_date": "2026-11-17",
+            "predictions": [
+                {"game_id": "1", "post_game": False, "predicted_winner": "NYK"},
+                {"game_id": "2", "post_game": False, "predicted_winner": "LAL"},
+            ],
+        }
+        payload = {
+            "game_date": "2026-11-17",
+            "games_count": 2,
+            "predictions": [
+                {"game_id": "1", "post_game": True, "predicted_winner": "BOS"},
+                {"game_id": "2", "post_game": False, "predicted_winner": "NYK"},
+            ],
+        }
+        kept = main_module._merge_pre_game_rows(existing, payload)
+        self.assertEqual(kept, ["1"])
+        self.assertEqual(payload["games_count"], 2)
+        self.assertEqual(payload["predictions"][0]["predicted_winner"], "NYK")
+        self.assertFalse(payload["predictions"][0]["post_game"])
+        self.assertEqual(payload["predictions"][1]["predicted_winner"], "NYK")
+
+    def test_merge_ignores_other_dates_and_unknown_games(self) -> None:
+        existing = {
+            "game_date": "2026-11-16",
+            "predictions": [{"game_id": "1", "post_game": False, "predicted_winner": "NYK"}],
+        }
+        payload = {
+            "game_date": "2026-11-17",
+            "games_count": 1,
+            "predictions": [{"game_id": "1", "post_game": True, "predicted_winner": "BOS"}],
+        }
+        self.assertEqual(main_module._merge_pre_game_rows(existing, payload), [])
+        self.assertEqual(payload["predictions"][0]["predicted_winner"], "BOS")
+
+        same_date = {
+            "game_date": "2026-11-16",
+            "games_count": 1,
+            "predictions": [{"game_id": "9", "post_game": True, "predicted_winner": "BOS"}],
+        }
+        self.assertEqual(main_module._merge_pre_game_rows(existing, same_date), [])
+        self.assertEqual(same_date["predictions"][0]["predicted_winner"], "BOS")
 
 
 class HistorySummaryTests(unittest.TestCase):
