@@ -1805,6 +1805,31 @@ class SiteBuildTests(unittest.TestCase):
             self.assertIn('id="nba-data"', html)
             self.assertIn("尚無已回填賽果", html)
 
+    def test_build_site_adds_realtime_refresh_button(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            generated_at = datetime(2026, 11, 17, 1, 0, tzinfo=config.TZ_ET)
+            html = build_site_module.build_site(
+                directory / "index.html",
+                ratings_path=directory / "missing_ratings.json",
+                predictions_path=directory / "missing_predictions.json",
+                history_path=directory / "missing_history.csv",
+                generated_at=generated_at,
+            ).read_text(encoding="utf-8")
+
+        self.assertIn('id="refresh-btn"', html)
+        self.assertIn("即時更新", html)
+        self.assertIn('id="refresh-status"', html)
+        self.assertIn('id="refresh-script"', html)
+        # 前端必須用 cache-busting + page_generated_at 判斷是否有新版。
+        self.assertIn("no-store", html)
+        self.assertIn("searchParams.set", html)
+        embedded = html.split('id="nba-data">', 1)[1].split("</script>", 1)[0]
+        payload = json.loads(embedded)
+        self.assertEqual(
+            payload["meta"]["page_generated_at"], config.to_iso(generated_at)
+        )
+
 
     def test_build_site_marks_espn_injury_fallback_and_rest_players(self) -> None:
         payload = _site_predictions_payload()

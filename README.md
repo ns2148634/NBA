@@ -407,6 +407,9 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 * 網址：`https://ns2148634.github.io/NBA/`。
 * 頁面同時內嵌精簡 JSON（`<script type="application/json" id="nba-data">`），方便程式取用；完整資料仍在 `data/*.json`。
 * GitHub Pages CDN 約有 10 分鐘快取，頁面上會顯示資料產生時間。
+* 頁面上方有「即時更新」按鈕：點擊後以 `?_=時間戳`（cache-busting）取回自身頁面，
+  比對內嵌 JSON 的 `meta.page_generated_at`；有新版才重新載入，否則顯示「已是最新資料」，
+  抓取失敗則在按鈕旁顯示原因。
 
 ---
 
@@ -444,7 +447,7 @@ python -m unittest discover -s tests -t . -v
 * `history_log.csv` upsert 冪等性、賽果回填、重跑不覆蓋賽果
 * 賽前／賽後判定（`post_game`、`lead_time_minutes`）、賽後預測不覆蓋賽前預測（整份沿用＋逐場保留）、命中率排除賽後預測（含舊資料以 `predicted_at` 推算）
 * 傷病快照寫入、快照失敗不影響預測、`--mode predict` 在「有傷兵但無球員數據」時仍能產出扣分
-* 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計只計已回填場次
+* 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計只計已回填場次、「即時更新」按鈕與 `page_generated_at`
 
 ---
 

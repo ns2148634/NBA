@@ -12,8 +12,12 @@
     python -m src.build_site --index docs/index.html
 
 設計取捨：整頁資料在產生時就渲染成 HTML，並額外內嵌一份精簡 JSON
-（``<script type="application/json" id="nba-data">``），因此不需要在瀏覽器
-端 fetch，也就沒有 CORS / 相對路徑問題，單一檔案即可分享。
+（``<script type="application/json" id="nba-data">``），因此開頁時不需要
+瀏覽器端 fetch，也就沒有 CORS / 相對路徑問題，單一檔案即可分享。
+
+頁面上的「即時更新」按鈕只在使用者點擊時才連網：以 cache-busting 參數
+（``?_=時間戳``）取回自身頁面、比對內嵌 JSON 的 ``meta.page_generated_at``，
+有新版才重新載入，藉此繞過 GitHub Pages CDN 約 10 分鐘的快取。
 """
 
 from __future__ import annotations
@@ -510,7 +514,124 @@ ul.warn-list li { margin: 2px 0; }
 footer { margin-top: 40px; color: #7f8fae; font-size: .8rem; border-top: 1px solid #1b2740; padding-top: 14px; }
 footer a { color: #8fd0ff; text-decoration: none; }
 footer a:hover { text-decoration: underline; }
+.refresh-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 0; }
+.refresh-btn {
+  padding: 6px 16px; border-radius: 999px; border: 1px solid #2c3f63;
+  background: #1b2a45; color: #d5e2f8; font: inherit; font-size: .84rem;
+  cursor: pointer; transition: background .15s ease, border-color .15s ease;
+}
+.refresh-btn:hover:not(:disabled) { background: #24395e; border-color: #3a548a; }
+.refresh-btn:disabled { opacity: .55; cursor: progress; }
+.refresh-btn:focus-visible { outline: 2px solid #8fd0ff; outline-offset: 2px; }
+.refresh-status { color: #93a4c4; font-size: .8rem; }
+.refresh-status.ok { color: #7ee2b8; }
+.refresh-status.warn { color: #ffcc80; }
 """
+
+
+#: 「即時更新」按鈕的前端邏輯（純前端、無外部相依、只在使用者點擊時連網）。
+#: 以 cache-busting 參數取回自身頁面，比對內嵌 JSON 的
+#: ``meta.page_generated_at``；有新版才用同一個 URL 重新載入。
+_REFRESH_JS = """
+(function () {
+  "use strict";
+
+  var button = document.getElementById("refresh-btn");
+  var status = document.getElementById("refresh-status");
+  if (!button || !status) { return; }
+
+  var currentGenerated = readGeneratedAt(document);
+
+  function readGeneratedAt(doc) {
+    var node = doc.getElementById("nba-data");
+    if (!node) { return ""; }
+    try {
+      var payload = JSON.parse(node.textContent || "{}");
+      var meta = payload.meta || {};
+      return String(meta.page_generated_at || meta.generated_at || "");
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function say(message, tone) {
+    status.textContent = message;
+    status.className = "refresh-status" + (tone ? " " + tone : "");
+  }
+
+  function describe(value) {
+    var moment = new Date(value);
+    if (isNaN(moment.getTime())) { return value; }
+    return moment.toLocaleString("zh-TW", {
+      timeZone: "Asia/Taipei",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false
+    });
+  }
+
+  function isNewer(fresh, current) {
+    var left = new Date(fresh);
+    var right = new Date(current);
+    if (isNaN(left.getTime())) { return false; }
+    if (isNaN(right.getTime())) { return true; }
+    return left.getTime() > right.getTime();
+  }
+
+  function cacheBusted(url) {
+    var target = new URL(url, window.location.href);
+    target.searchParams.set("_", String(Date.now()));
+    return target.toString();
+  }
+
+  function stopBusy() {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+
+  function refresh() {
+    if (!window.fetch || !window.DOMParser || !window.URL) {
+      say("此瀏覽器不支援即時更新，改用重新載入。", "warn");
+      window.location.reload();
+      return;
+    }
+
+    var pageUrl = cacheBusted(window.location.href);
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    say("檢查最新資料中…", "");
+
+    window.fetch(pageUrl, { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) { throw new Error("HTTP " + response.status); }
+        return response.text();
+      })
+      .then(function (html) {
+        var fresh = new DOMParser().parseFromString(html, "text/html");
+        var freshGenerated = readGeneratedAt(fresh);
+        if (!freshGenerated || !isNewer(freshGenerated, currentGenerated)) {
+          var note = currentGenerated ? "（頁面產生於 " + describe(currentGenerated) + "）" : "";
+          say("已是最新資料" + note + "。", "ok");
+          stopBusy();
+          return;
+        }
+        say("發現新版本（頁面產生於 " + describe(freshGenerated) + "），重新載入中…", "ok");
+        window.location.replace(pageUrl);
+      })
+      .catch(function (error) {
+        stopBusy();
+        var reason = error && error.message ? error.message : "網路異常";
+        say("無法取得最新資料（" + reason + "），請稍後再試。", "warn");
+      });
+  }
+
+  button.addEventListener("click", refresh);
+})();
+"""
+
+
+def _refresh_script() -> str:
+    """回傳「即時更新」按鈕用的 inline script。"""
+    return f'<script id="refresh-script">\n{_REFRESH_JS.strip()}\n</script>'
 
 
 def _repo_slug() -> str:
@@ -540,6 +661,12 @@ def _render_header(predictions: dict | None, ratings: dict | None, moment: datet
             f"  <h1>{_esc(_SITE_TITLE)}</h1>",
             f'  <p class="meta">{" · ".join(entries)}</p>',
             f'  <p class="meta">資料來源：{_source_badge(source)}</p>',
+            '  <div class="refresh-bar">',
+            '    <button type="button" id="refresh-btn" class="refresh-btn"'
+            ' title="略過 CDN 快取，重新抓取最新版本的頁面">即時更新</button>',
+            '    <span id="refresh-status" class="refresh-status" role="status"'
+            ' aria-live="polite"></span>',
+            "  </div>",
             "</header>",
         ]
     )
@@ -561,14 +688,15 @@ def _render_footer(moment: datetime) -> str:
             " · 由 GitHub Actions 每日自動更新"
             f" · 本頁產生時間 {_esc(_short_timestamp(generated))}（UTC）</p>",
             "  <p>頁面由 <code>python -m src.build_site</code> 產生，請勿手動編輯。"
-            " GitHub Pages 有約 10 分鐘快取，若資料尚未更新請稍後重整。</p>",
+            " GitHub Pages 有約 10 分鐘快取，可按頁面上方的「即時更新」"
+            "重新抓取最新版本。</p>",
             "</footer>",
         ]
     )
 
 
 
-def _embed_json(predictions: dict | None, ratings: dict | None) -> str:
+def _embed_json(predictions: dict | None, ratings: dict | None, moment: datetime) -> str:
     """內嵌精簡 JSON，方便用程式取用（不含傷兵明細，控制檔案大小）。"""
     prediction_fields = (
         "game_id",
@@ -601,6 +729,8 @@ def _embed_json(predictions: dict | None, ratings: dict | None) -> str:
             "data_source": (predictions or {}).get("data_source")
             or (ratings or {}).get("data_source"),
             "generated_at": (predictions or {}).get("generated_at"),
+            # 本頁產生時間（UTC）：「即時更新」按鈕用來判斷抓回來的頁面是否較新。
+            "page_generated_at": config.to_iso(moment),
             "schema_version": config.SCHEMA_VERSION,
         },
         "predictions": [
@@ -662,7 +792,8 @@ def _render_html(
             '  <main class="wrap">',
             sections,
             "  </main>",
-            _embed_json(predictions, ratings),
+            _embed_json(predictions, ratings, moment),
+            _refresh_script(),
             "</body>",
             "</html>",
         ]
