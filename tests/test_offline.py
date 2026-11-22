@@ -1907,6 +1907,120 @@ class SiteBuildTests(unittest.TestCase):
             self.assertIn("&lt;script&gt;", html)
 
 
+    @staticmethod
+    def _write_history_fixture(path: Path) -> None:
+        """兩天份的賽果：一天有賽前＋賽後、一天全數賽後。"""
+        rating_engine.write_history(
+            path,
+            [
+                {
+                    "game_date": "2026-11-16",
+                    "game_time_et": "19:00",
+                    "game_id": "1",
+                    "home_team": "BOS",
+                    "away_team": "NYK",
+                    "predicted_winner": "BOS",
+                    "actual_home_score": "110",
+                    "actual_away_score": "100",
+                    "actual_winner": "BOS",
+                    "result_correct": "true",
+                    "post_game": "false",
+                },
+                {
+                    "game_date": "2026-11-16",
+                    "game_time_et": "21:00",
+                    "game_id": "2",
+                    "home_team": "LAL",
+                    "away_team": "GSW",
+                    "predicted_winner": "LAL",
+                    "actual_home_score": "101",
+                    "actual_away_score": "110",
+                    "actual_winner": "GSW",
+                    "result_correct": "true",
+                    "post_game": "false",
+                },
+                {
+                    "game_date": "2026-11-16",
+                    "game_time_et": "22:00",
+                    "game_id": "3",
+                    "home_team": "MIA",
+                    "away_team": "ATL",
+                    "predicted_winner": "MIA",
+                    "actual_home_score": "95",
+                    "actual_away_score": "99",
+                    "actual_winner": "ATL",
+                    "result_correct": "false",
+                    "post_game": "true",
+                },
+                {
+                    "game_date": "2026-11-16",
+                    "game_time_et": "22:30",
+                    "game_id": "4",
+                    "home_team": "DAL",
+                    "away_team": "PHX",
+                    "predicted_winner": "DAL",
+                    "actual_home_score": "120",
+                    "actual_away_score": "118",
+                    "actual_winner": "DAL",
+                    "result_correct": "false",
+                    "post_game": "true",
+                },
+                {
+                    "game_date": "2026-11-17",
+                    "game_time_et": "19:30",
+                    "game_id": "5",
+                    "home_team": "DEN",
+                    "away_team": "UTA",
+                    "predicted_winner": "DEN",
+                    "actual_home_score": "118",
+                    "actual_away_score": "110",
+                    "actual_winner": "DEN",
+                    "result_correct": "true",
+                    "post_game": "true",
+                },
+            ],
+        )
+
+    def test_build_site_reports_pre_game_and_all_accuracy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            history_path = directory / "history_log.csv"
+            self._write_history_fixture(history_path)
+            html = build_site_module.build_site(
+                directory / "index.html",
+                ratings_path=directory / "missing_ratings.json",
+                predictions_path=directory / "missing_predictions.json",
+                history_path=history_path,
+            ).read_text(encoding="utf-8")
+
+        # 已回填 5 場，只有 2 場是賽前預測（2/2 命中）；含賽後則是 3/5 命中。
+        self.assertIn("5</b>已回填場次", html)
+        self.assertIn("2</b>計入命中率", html)
+        self.assertIn("100.0%</b>賽前預測命中率", html)
+        self.assertIn("60.0%</b>全部命中率", html)
+        self.assertIn("近 2 個賽事日命中率", html)
+        self.assertIn("賽後排除", html)
+        self.assertIn("全數賽後", html)
+
+    def test_build_site_contains_no_merge_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            history_path = directory / "history_log.csv"
+            self._write_history_fixture(history_path)
+            html = build_site_module.build_site(
+                directory / "index.html",
+                ratings_path=directory / "missing_ratings.json",
+                predictions_path=directory / "missing_predictions.json",
+                history_path=history_path,
+            ).read_text(encoding="utf-8")
+
+        # 產出的頁面會直接 commit 進 repo，混入衝突標記或重複區塊就會壞掉。
+        for marker in ("<<<<<<<", "=======", ">>>>>>>"):
+            self.assertNotIn(marker, html)
+        self.assertEqual(html.count('id="nba-data"'), 1)
+        self.assertEqual(html.count("<footer"), 1)
+
+
 class PostGameGuardTests(unittest.TestCase):
     """賽前／賽後預測標記與命中率防護。"""
 
@@ -1991,6 +2105,50 @@ class PostGameGuardTests(unittest.TestCase):
         self.assertEqual(summary["total_settled"], 1)
         self.assertAlmostEqual(summary["accuracy"], 0.0)
 
+    def test_is_predicted_after_tipoff_handles_missing_fields(self) -> None:
+        self.assertTrue(
+            rating_engine.is_predicted_after_tipoff(
+                "2026-11-18T03:10:00+00:00", "2026-11-17", "19:30"
+            )
+        )
+        self.assertFalse(
+            rating_engine.is_predicted_after_tipoff(
+                "2026-11-17T13:00:00+00:00", "2026-11-17", "22:00"
+            )
+        )
+        self.assertFalse(rating_engine.is_predicted_after_tipoff("", "2026-11-17", "19:30"))
+        self.assertFalse(
+            rating_engine.is_predicted_after_tipoff("not-a-time", "2026-11-17", "19:30")
+        )
+
+    def test_fill_missing_post_game_flags_backfills_legacy_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "history_log.csv"
+            rating_engine.write_history(
+                path,
+                [
+                    {
+                        "game_date": "2026-11-17",
+                        "game_time_et": "19:30",
+                        "game_id": "1",
+                        "predicted_at": "2026-11-18T03:10:00+00:00",
+                    },
+                    {
+                        "game_date": "2026-11-17",
+                        "game_time_et": "22:00",
+                        "game_id": "2",
+                        "predicted_at": "2026-11-17T13:00:00+00:00",
+                        "post_game": "false",
+                    },
+                ],
+            )
+            self.assertEqual(rating_engine.fill_missing_post_game_flags(path), 1)
+            rows = {row["game_id"]: row for row in rating_engine.read_history(path)}
+            self.assertEqual(rows["1"]["post_game"], "true")
+            self.assertEqual(rows["2"]["post_game"], "false")
+            # 已有標記的列不再改寫（idempotent）
+            self.assertEqual(rating_engine.fill_missing_post_game_flags(path), 0)
+
     def test_should_keep_pre_game_when_new_run_is_post_game(self) -> None:
         existing = {
             "game_date": "2026-11-17",
@@ -2073,6 +2231,129 @@ class HistorySummaryTests(unittest.TestCase):
         self.assertEqual(len(summary["days"]), 1)
         self.assertEqual(summary["days"][0]["date"], "2026-11-16")
         self.assertEqual(summary["days"][0]["games"], 2)
+
+
+    def test_summarize_history_recomputes_missing_result_correct(self) -> None:
+        rows = [
+            {
+                "game_date": "2026-11-20",
+                "home_team": "BOS",
+                "away_team": "NYK",
+                "predicted_winner": "BOS",
+                "actual_home_score": "110",
+                "actual_away_score": "100",
+                "post_game": "false",
+            },
+            {
+                "game_date": "2026-11-20",
+                "home_team": "BOS",
+                "away_team": "NYK",
+                "predicted_winner": "BOS",
+                "actual_home_score": "90",
+                "actual_away_score": "99",
+                "actual_winner": "NYK",
+                "post_game": "false",
+            },
+            {
+                "game_date": "2026-11-20",
+                "predicted_winner": "BOS",
+                "actual_home_score": "101",
+                "actual_away_score": "101",
+                "post_game": "false",
+            },
+        ]
+        summary = build_site_module.summarize_history(rows)
+        self.assertEqual(summary["total_settled"], 3)
+        self.assertEqual(summary["total_correct"], 1)
+        self.assertAlmostEqual(summary["accuracy"], 1 / 3, places=4)
+
+    def test_summarize_history_reports_all_and_excluded_totals(self) -> None:
+        rows = [
+            {
+                "game_date": "2026-11-16",
+                "actual_home_score": "110",
+                "actual_away_score": "100",
+                "result_correct": "true",
+                "post_game": "false",
+            },
+            {
+                "game_date": "2026-11-16",
+                "actual_home_score": "90",
+                "actual_away_score": "99",
+                "result_correct": "false",
+                "post_game": "true",
+            },
+            {
+                "game_date": "2026-11-17",
+                "actual_home_score": "88",
+                "actual_away_score": "99",
+                "result_correct": "false",
+                "post_game": "true",
+            },
+        ]
+        summary = build_site_module.summarize_history(rows)
+        self.assertEqual(summary["settled_rows"], 3)
+        self.assertEqual(summary["all_correct"], 1)
+        self.assertAlmostEqual(summary["all_accuracy"], 1 / 3, places=4)
+        self.assertEqual(summary["total_settled"], 1)
+        self.assertEqual(summary["total_correct"], 1)
+        self.assertEqual(summary["post_game_excluded"], 2)
+        self.assertEqual(summary["excluded_correct"], 0)
+        # 整日都是賽後預測的日子只出現在 days_all，不會被當成命中率分母
+        self.assertEqual([day["date"] for day in summary["days"]], ["2026-11-16"])
+        self.assertEqual(
+            [day["date"] for day in summary["days_all"]], ["2026-11-17", "2026-11-16"]
+        )
+        self.assertEqual(summary["days_all"][0]["games"], 0)
+        self.assertEqual(summary["days_all"][0]["excluded"], 1)
+
+
+    def test_summarize_history_ignores_rows_without_predicted_winner(self) -> None:
+        rows = [
+            {
+                "game_date": "2026-11-20",
+                "home_team": "BOS",
+                "predicted_winner": "",
+                "actual_home_score": "110",
+                "actual_away_score": "100",
+                "result_correct": "",
+                "post_game": "false",
+            },
+            {
+                "game_date": "2026-11-20",
+                "home_team": "BOS",
+                "predicted_winner": "BOS",
+                "actual_home_score": "110",
+                "actual_away_score": "100",
+                "result_correct": "true",
+                "post_game": "false",
+            },
+        ]
+        summary = build_site_module.summarize_history(rows)
+        # 沒有預測勝負的列無法計分，不能被當成「沒中」而拉低命中率。
+        self.assertEqual(summary["settled_rows"], 1)
+        self.assertEqual(summary["total_settled"], 1)
+        self.assertEqual(summary["total_correct"], 1)
+        self.assertAlmostEqual(summary["accuracy"], 1.0)
+
+
+    def test_render_history_handles_all_post_game_days(self) -> None:
+        rows = [
+            {
+                "game_date": "2026-11-18",
+                "predicted_winner": "BOS",
+                "actual_home_score": "110",
+                "actual_away_score": "100",
+                "result_correct": "true",
+                "post_game": "true",
+            }
+        ]
+        summary = build_site_module.summarize_history(rows)
+        html = build_site_module._render_history(summary)
+        self.assertIn("0</b>計入命中率", html)
+        self.assertIn("全數賽後", html)
+        # 沒有可計分場次時不能吐出「（0/0）」這種看不懂的數字。
+        self.assertNotIn("（0/0）", html)
 
 
 if __name__ == "__main__":

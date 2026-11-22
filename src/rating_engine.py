@@ -829,6 +829,67 @@ def write_history(path: str | Path | None, rows: list[dict]) -> Path:
     return target
 
 
+#: ``post_game`` 已明確標記時的字串（不再重複回寫）
+_POST_GAME_VALUES: tuple[str, ...] = ("true", "false", "1", "0", "yes", "no")
+
+
+def is_predicted_after_tipoff(
+    predicted_at: Any,
+    game_date: Any,
+    game_time_et: Any,
+) -> bool:
+    """``predicted_at`` 是否晚於「比賽日 + 美東開球時間」。
+
+    缺欄位或格式錯誤一律視為賽前（回傳 ``False``），避免把舊資料誤判成賽後預測。
+    """
+    date_text = str(game_date or "").strip()
+    time_text = str(game_time_et or "").strip()
+    predicted = _parse_utc_iso(predicted_at)
+    if predicted is None or not date_text or not time_text:
+        return False
+    tipoff: datetime | None = None
+    for candidate in (f"{date_text}T{time_text}", f"{date_text}T{time_text}:00"):
+        try:
+            tipoff = datetime.fromisoformat(candidate).replace(tzinfo=config.TZ_ET)
+            break
+        except ValueError:
+            continue
+    if tipoff is None:
+        return False
+    return predicted > tipoff.astimezone(timezone.utc)
+
+
+def fill_missing_post_game_flags(path: str | Path | None = None) -> int:
+    """把舊資料缺漏的 ``post_game`` 依 ``predicted_at`` 補寫回 CSV，回傳補寫列數。
+
+    舊版 ``history_log.csv`` 沒有 ``post_game`` 欄位，統計命中率時每次都得即時推算；
+    補寫後結果就固定下來，日後即使時區規則調整也不會改動歷史賽事的判定。
+    """
+    target = Path(path or config.HISTORY_LOG_PATH)
+    rows = read_history(target)
+    if not rows:
+        return 0
+    updated = 0
+    for row in rows:
+        flag = str(row.get("post_game") or "").strip().lower()
+        if flag in _POST_GAME_VALUES:
+            continue
+        row["post_game"] = (
+            "true"
+            if is_predicted_after_tipoff(
+                row.get("predicted_at"),
+                row.get("game_date"),
+                row.get("game_time_et"),
+            )
+            else "false"
+        )
+        updated += 1
+    if updated:
+        write_history(target, rows)
+        LOGGER.info("已補寫 %d 筆 history_log.csv 的 post_game 標記。", updated)
+    return updated
+
+
 def upsert_history(
     path: str | Path | None,
     rows: list[dict],

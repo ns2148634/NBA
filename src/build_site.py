@@ -27,7 +27,7 @@ import html
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -128,79 +128,158 @@ def _has_result(row: dict) -> bool:
     )
 
 
+def _score_value(value: Any) -> float | None:
+    """把比分欄位轉成 float（空白或非數字回傳 ``None``）。"""
+    text = str(value or "").strip()
+    if text in ("", "nan", "None"):
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
 def _is_correct(row: dict) -> bool:
-    """該列預測勝負是否命中。"""
-    return str(row.get("result_correct") or "").strip().lower() in ("true", "1", "yes")
+    """該列預測勝負是否命中。
+
+    ``result_correct`` 有值時以它為準；缺漏時用 ``actual_winner``（或實際比分）
+    與 ``predicted_winner`` 重算，避免「有比分、沒旗標」的舊資料被算成沒中。
+    """
+    flag = str(row.get("result_correct") or "").strip().lower()
+    if flag in ("true", "1", "yes"):
+        return True
+    if flag in ("false", "0", "no"):
+        return False
+    predicted = str(row.get("predicted_winner") or "").strip()
+    if not predicted:
+        return False
+    actual = str(row.get("actual_winner") or "").strip()
+    if not actual:
+        home_score = _score_value(row.get("actual_home_score"))
+        away_score = _score_value(row.get("actual_away_score"))
+        if home_score is None or away_score is None or home_score == away_score:
+            return False
+        winner_team = row.get("home_team") if home_score > away_score else row.get("away_team")
+        actual = str(winner_team or "").strip()
+    return bool(actual) and predicted == actual
+
+
+def _scoreable(row: dict) -> bool:
+    """該列是否足以判斷命中（有預測勝負，或有明確的 ``result_correct``）。"""
+    if str(row.get("predicted_winner") or "").strip():
+        return True
+    return str(row.get("result_correct") or "").strip().lower() in (
+        "true",
+        "false",
+        "1",
+        "0",
+        "yes",
+        "no",
+    )
 
 
 def _row_post_game(row: dict) -> bool:
     """該筆預測是否在開賽後才產生（賽後預測不列入命中率）。
 
     舊版 ``history_log.csv`` 沒有 ``post_game`` 欄位，此時用
-    ``predicted_at`` 與「比賽日 + 美東開賽時間」推算。
+    ``predicted_at`` 與「比賽日 + 美東開賽時間」推算
+    （:func:`rating_engine.is_predicted_after_tipoff`）。
     """
     flag = str(row.get("post_game") or "").strip().lower()
     if flag in ("true", "1", "yes"):
         return True
     if flag in ("false", "0", "no"):
         return False
-    predicted_at = str(row.get("predicted_at") or "").strip()
-    game_date = str(row.get("game_date") or "").strip()
-    game_time = str(row.get("game_time_et") or "").strip()
-    if not predicted_at or not game_date or not game_time:
-        return False
-    try:
-        tipoff = datetime.fromisoformat(f"{game_date}T{game_time}:00").replace(
-            tzinfo=config.TZ_ET
-        )
-        predicted = datetime.fromisoformat(predicted_at.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if predicted.tzinfo is None:
-        predicted = predicted.replace(tzinfo=timezone.utc)
-    return predicted > tipoff
+    return rating_engine.is_predicted_after_tipoff(
+        row.get("predicted_at"), row.get("game_date"), row.get("game_time_et")
+    )
 
 
 def summarize_history(
     rows: Sequence[dict] | None, window: int = RECENT_DAYS_WINDOW
 ) -> dict:
-    """統計已回填賽果的整體與逐日命中率（排除賽後才產生的預測）。"""
-    settled = [dict(row) for row in (rows or []) if _has_result(row)]
-    settled.sort(
+    """統計已回填賽果的命中率（同時提供「只算賽前」與「全部」兩種）。
+
+    * ``total_settled`` / ``accuracy``：只算**賽前**產生的預測 → 正式命中率。
+    * ``settled_rows`` / ``all_accuracy``：所有已回填場次（含開賽後才產生的預測）。
+    * ``post_game_excluded`` / ``excluded_correct``：被排除的場次與其中命中數。
+    * ``days``：只含有賽前預測的賽事日；``days_all`` 另含「整日都是賽後預測」的日子。
+
+    既沒有 ``predicted_winner`` 也沒有 ``result_correct`` 的列無法計分，
+    直接排除在統計之外（不該被算成「沒中」而拉低命中率）。
+    """
+    settled_all = [
+        dict(row)
+        for row in (rows or [])
+        if _has_result(row) and _scoreable(row)
+    ]
+    settled_all.sort(
         key=lambda row: (
             str(row.get("game_date") or ""),
             str(row.get("game_time_et") or ""),
         )
     )
-    excluded = sum(1 for row in settled if _row_post_game(row))
-    settled = [row for row in settled if not _row_post_game(row)]
-    correct = sum(1 for row in settled if _is_correct(row))
 
     buckets: dict[str, dict] = {}
-    for row in settled:
+    counted_total = 0
+    counted_correct = 0
+    excluded_total = 0
+    excluded_correct = 0
+    all_correct = 0
+    for row in settled_all:
         day = str(row.get("game_date") or "")
-        bucket = buckets.setdefault(day, {"date": day, "games": 0, "correct": 0})
+        bucket = buckets.setdefault(
+            day,
+            {
+                "date": day,
+                "games": 0,
+                "correct": 0,
+                "excluded": 0,
+                "excluded_correct": 0,
+                "total": 0,
+            },
+        )
+        bucket["total"] += 1
+        hit = _is_correct(row)
+        all_correct += int(hit)
+        if _row_post_game(row):
+            bucket["excluded"] += 1
+            bucket["excluded_correct"] += int(hit)
+            excluded_total += 1
+            excluded_correct += int(hit)
+            continue
         bucket["games"] += 1
-        if _is_correct(row):
-            bucket["correct"] += 1
+        bucket["correct"] += int(hit)
+        counted_total += 1
+        counted_correct += int(hit)
 
-    days = sorted(buckets.values(), key=lambda item: item["date"], reverse=True)
-    days = days[: max(int(window), 1)]
-    for bucket in days:
-        bucket["accuracy"] = bucket["correct"] / bucket["games"] if bucket["games"] else 0.0
+    days_all = sorted(buckets.values(), key=lambda item: item["date"], reverse=True)
+    days_all = days_all[: max(int(window), 1)]
+    for bucket in days_all:
+        bucket["accuracy"] = (
+            bucket["correct"] / bucket["games"] if bucket["games"] else 0.0
+        )
+    days = [bucket for bucket in days_all if bucket["games"]]
 
-    recent_games = sum(bucket["games"] for bucket in days)
-    recent_correct = sum(bucket["correct"] for bucket in days)
+    recent_games = sum(bucket["games"] for bucket in days_all)
+    recent_correct = sum(bucket["correct"] for bucket in days_all)
     return {
-        "total_settled": len(settled),
-        "post_game_excluded": excluded,
-        "total_correct": correct,
-        "accuracy": (correct / len(settled)) if settled else 0.0,
+        "settled_rows": len(settled_all),
+        "all_correct": all_correct,
+        "all_accuracy": (all_correct / len(settled_all)) if settled_all else 0.0,
+        "total_settled": counted_total,
+        "total_correct": counted_correct,
+        "accuracy": (counted_correct / counted_total) if counted_total else 0.0,
+        "post_game_excluded": excluded_total,
+        "excluded_correct": excluded_correct,
+        "excluded_accuracy": (excluded_correct / excluded_total) if excluded_total else 0.0,
         "recent_games": recent_games,
         "recent_correct": recent_correct,
         "recent_accuracy": (recent_correct / recent_games) if recent_games else 0.0,
         "days": days,
+        "days_all": days_all,
     }
+
 
 
 # --------------------------------------------------------------------------
@@ -433,43 +512,82 @@ def _render_warnings(warnings: Sequence[Any] | None) -> str:
 
 
 def _render_history(summary: dict) -> str:
-    if not summary.get("total_settled") and not summary.get("post_game_excluded"):
+    if not summary.get("settled_rows"):
         return _empty_panel("尚無已回填賽果（history_log.csv 的 actual_* 仍為空）。")
+
+    settled = int(summary.get("settled_rows") or 0)
+    counted = int(summary.get("total_settled") or 0)
+    counted_correct = int(summary.get("total_correct") or 0)
+    excluded = int(summary.get("post_game_excluded") or 0)
+    all_correct = int(summary.get("all_correct") or 0)
+    accuracy = _pct(summary.get("accuracy"))
+    all_accuracy = _pct(summary.get("all_accuracy"))
+    recent_accuracy = _pct(summary.get("recent_accuracy"))
+    days_all = summary.get("days_all") or []
 
     stats = "\n".join(
         [
             '<div class="stats">',
-            f'  <span class="stat"><b>{summary["total_settled"]}</b>已回填場次</span>',
-            f'  <span class="stat"><b>{summary["total_correct"]}</b>命中</span>',
-            f'  <span class="stat"><b>{_pct(summary["accuracy"])}</b>累計命中率</span>',
-            f'  <span class="stat"><b>{_pct(summary["recent_accuracy"])}</b>'
-            f'近 {len(summary.get("days") or [])} 日命中率</span>',
+            f'  <span class="stat"><b>{settled}</b>已回填場次</span>',
+            f'  <span class="stat"><b>{counted}</b>計入命中率</span>',
+            f'  <span class="stat"><b>{accuracy}</b>賽前預測命中率</span>',
+            f'  <span class="stat"><b>{all_accuracy}</b>全部命中率</span>',
+            f'  <span class="stat"><b>{recent_accuracy}</b>'
+            f"近 {len(days_all)} 個賽事日命中率</span>",
             "</div>",
         ]
     )
-    excluded = int(summary.get("post_game_excluded") or 0)
+
+    if counted:
+        notes = [
+            '<p class="sub">「賽前預測命中率」只計開賽前產生的預測'
+            f"（{counted_correct}/{counted}），是正式對外的數字。</p>"
+        ]
+    else:
+        notes = [
+            '<p class="sub">目前回填的場次全是開賽後才產生的預測，'
+            "還沒有可計分的賽前預測。</p>"
+        ]
     if excluded:
-        stats += (
-            f'\n<p class="sub">另有 {excluded} 場是開賽後才產生的預測，已排除在命中率之外。</p>'
+        notes.append(
+            f'<p class="sub">另有 {excluded} 場的預測是開賽後才產生（排程延遲），'
+            "已排除在上述命中率之外；若把它們也計入，"
+            f"「全部命中率」為 {all_correct}/{settled}（{all_accuracy}），僅供參考。</p>"
+        )
+    if any(int(day.get("games") or 0) == 0 for day in days_all):
+        notes.append(
+            '<p class="sub">標示「全數賽後」的賽事日，當天所有預測都在開賽後才產生，'
+            "因此不列入命中率。</p>"
         )
 
-    rows = [
-        "        <tr>"
-        f"<td>{_esc(day.get('date'))}</td>"
-        f'<td class="num">{_esc(day.get("games"))}</td>'
-        f'<td class="num">{_esc(day.get("correct"))}</td>'
-        f'<td class="num">{_pct(day.get("accuracy"))}</td>'
-        "</tr>"
-        for day in (summary.get("days") or [])
-    ]
+    rows = []
+    for day in days_all:
+        games = int(day.get("games") or 0)
+        total = int(day.get("total") or 0)
+        excluded_day = int(day.get("excluded") or 0)
+        settled_cell = _esc(total)
+        if not games and excluded_day:
+            settled_cell += '<br><span class="sub">全數賽後</span>'
+        rows.append(
+            "        <tr>"
+            f"<td>{_esc(day.get('date'))}</td>"
+            f'<td class="num">{settled_cell}</td>'
+            f'<td class="num">{_esc(games)}</td>'
+            f'<td class="num">{_esc(day.get("correct")) if games else "—"}</td>'
+            f'<td class="num">{_pct(day.get("accuracy")) if games else "—"}</td>'
+            f'<td class="num">{_esc(excluded_day)}</td>'
+            "</tr>"
+        )
 
     return "\n".join(
         [
             stats,
+            *notes,
             '<div class="scroll">',
             '  <table id="history-table">',
             '    <thead><tr><th>賽事日（ET）</th><th class="num">已回填</th>'
-            '<th class="num">命中</th><th class="num">命中率</th></tr></thead>',
+            '<th class="num">計入</th><th class="num">命中</th>'
+            '<th class="num">命中率</th><th class="num">賽後排除</th></tr></thead>',
             "    <tbody>",
             *rows,
             "    </tbody>",
@@ -477,7 +595,6 @@ def _render_history(summary: dict) -> str:
             "</div>",
         ]
     )
-
 
 
 _CSS = """
@@ -808,10 +925,20 @@ def build_site(
     history_path: str | Path | None = None,
     generated_at: datetime | None = None,
 ) -> Path:
-    """讀取 ``data/`` 後寫出靜態頁面，回傳輸出路徑。"""
+    """讀取 ``data/`` 後寫出靜態頁面，回傳輸出路徑。
+
+    產生頁面前會先把舊資料缺漏的 ``post_game`` 標記補寫回 ``history_log.csv``
+    （idempotent），讓命中率的「賽前／賽後」判定固定下來；補寫失敗（例如唯讀
+    環境）只記警告，不影響頁面產生。
+    """
     ratings = _load_json(Path(ratings_path or config.TEAM_RATINGS_PATH))
     predictions = _load_json(Path(predictions_path or config.DAILY_PREDICTIONS_PATH))
-    history_rows = rating_engine.read_history(Path(history_path or config.HISTORY_LOG_PATH))
+    history_target = Path(history_path or config.HISTORY_LOG_PATH)
+    try:
+        rating_engine.fill_missing_post_game_flags(history_target)
+    except OSError as exc:
+        LOGGER.warning("補寫 history_log.csv 的 post_game 標記失敗：%s", exc)
+    history_rows = rating_engine.read_history(history_target)
     moment = generated_at or config.now_utc()
 
     document = _render_html(ratings, predictions, history_rows, moment)

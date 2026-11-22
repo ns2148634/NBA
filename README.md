@@ -350,7 +350,8 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 > 整份都是賽後時沿用舊檔（`main._should_keep_pre_game`），
 > 只有部分場次開打時則逐場保留（`main._merge_pre_game_rows`），
 > 被保留的場次連 `generated_at` 都維持原值，因此 `predicted_at` 不會變成賽後時間。
-> 賽後預測不計入命中率，靜態頁會標示「部分預測在開賽後才產生（不列入命中率）」。
+> 賽後預測不計入「賽前預測命中率」，靜態頁會標示「部分預測在開賽後才產生（不列入命中率）」，
+> 並同時公布把賽後場次一起計入的「全部命中率」，避免只看單一數字誤判模型準度。
 
 ### 4.3 `data/history_log.csv`
 
@@ -372,7 +373,11 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 
 * 重跑預測**不會**覆蓋已回填的 `actual_*` / `result_correct`。
 * `settle` 與每次 `predict` 結束時都會嘗試回填，重複執行為 idempotent。
-* 舊資料沒有 `post_game` 欄位時，會用 `predicted_at` 與「比賽日 + `game_time_et`」推算。
+* 舊資料沒有 `post_game` 欄位時，會用 `predicted_at` 與「比賽日 + `game_time_et`」推算
+  （`rating_engine.is_predicted_after_tipoff`）；`build_site` 產生頁面時會把推算結果
+  補寫回 CSV（idempotent），之後判定就固定下來。
+* 命中率有兩種算法：`賽前預測命中率` 只算開賽前產生的預測（正式數字），
+  `全部命中率` 連賽後才產生的預測一起算（僅供參考）；兩者都公布，避免分母被誤解。
 
 ---
 
@@ -381,12 +386,16 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 | 工作流 | 排程（UTC） | 台灣時間 | 內容 |
 | --- | --- | --- | --- |
 | `A - Update Base Ratings` | `0 7 * * *` | 15:00 | 更新 `team_ratings.json` + 重建靜態頁 |
-| `B - Daily Injury & Prediction` | `0 11 * * *` | 19:00 | 主執行：傷病 + 賽前預測 + 賽果回填 + 重建靜態頁 |
+| `B - Daily Injury & Prediction` | `0 6,9,12 * * *` | 14:00 / 17:00 / 20:00 | 早班：傷病 + 賽前預測 + 賽果回填 + 重建靜態頁 |
+| `B - Daily Injury & Prediction` | `0 11 * * *` | 19:00 | 主執行：同上（美東約 06:00） |
 | `B - Daily Injury & Prediction` | `30 22 * * *` | 隔日 06:30 | 備援／回填：若當天已存在賽前預測則不覆蓋 |
 
-* GitHub 排程常有 5–9 小時延遲，因此主執行放在美東清晨（約 06:00）以確保仍早於晚間開賽；
+* GitHub 排程常有 4–10 小時延遲，因此一天排多趟（美東約 01:00 / 04:00 / 06:00 / 07:00）；
+  只要有任何一趟在開打前成功，`history_log.csv` 就會留下賽前預測，命中率的分母才不會失真。
   真的延遲到開打後才跑，程式會標記 `post_game` 並保留既有的賽前預測
   （整份賽後→沿用舊檔；只開打部分場次→逐場保留該場次的賽前預測）。
+* 每次執行先 `--mode predict`，再用 `--mode settle` 獨立回填賽果（`if: always()`，
+  預測步驟失敗也會補賽果），最後才重建靜態頁並 commit。
 * 兩者共用 `concurrency: nba-data-write`，避免同時改寫 `data/`。
 * `permissions: contents: write`，commit 身分為 `github-actions[bot]`。
 * 兩支工作流都會在資料更新後執行 `python -m src.build_site`，並以 `git add data/ docs/` 一起提交，讓 Pages 內容與資料同步。
@@ -445,9 +454,9 @@ python -m unittest discover -s tests -t . -v
 * ESPN 傷兵名單：球隊／日期過濾、狀態正規化、官方報告優先（不呼叫 ESPN）、`ESPN_INJURY_FILL_MISSING_TEAMS` 補漏與去重
 * 輪休分類（`Rest` / `Load Management` 為 `rest`、`Minutes restriction` 不算）與靜態頁「·輪休」標記
 * `history_log.csv` upsert 冪等性、賽果回填、重跑不覆蓋賽果
-* 賽前／賽後判定（`post_game`、`lead_time_minutes`）、賽後預測不覆蓋賽前預測（整份沿用＋逐場保留）、命中率排除賽後預測（含舊資料以 `predicted_at` 推算）
+* 賽前／賽後判定（`post_game`、`lead_time_minutes`）、賽後預測不覆蓋賽前預測（整份沿用＋逐場保留）、命中率排除賽後預測（含舊資料以 `predicted_at` 推算、缺 `result_correct` 時用比分重算、缺 `predicted_winner` 且缺 `result_correct` 的列不計分）、`post_game` 補寫回 CSV 的冪等性
 * 傷病快照寫入、快照失敗不影響預測、`--mode predict` 在「有傷兵但無球員數據」時仍能產出扣分
-* 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計只計已回填場次、「即時更新」按鈕與 `page_generated_at`
+* 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計（賽前／全部雙指標、逐日「賽後排除」欄）、產出頁面不含合併衝突標記且 `id="nba-data"` 只出現一次、「即時更新」按鈕與 `page_generated_at`
 
 ---
 

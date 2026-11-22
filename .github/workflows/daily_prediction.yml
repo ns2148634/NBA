@@ -1,12 +1,14 @@
 name: B - Daily Injury & Prediction
 
 # 排程 B：抓取官網傷病報告並產出當日預測。
-# 主執行 UTC 11:00（台北 19:00）→ 美東約 06:00，即使 GitHub 排程延遲 5–9 小時，
-#   仍會落在晚間開打前；UTC 22:30（台北隔日 06:30）作為備援與賽果回填。
+# 一天跑多趟（UTC 06/09/12 → 美東 01/04/07，UTC 11 → 美東 06:00），只要有一趟
+#   在開打前成功，就能保住「賽前預測」；UTC 22:30（台北隔日 06:30）作為備援與賽果回填。
+# GitHub 的 schedule 常延遲 4–10 小時，多時段可大幅降低「預測在開賽後才產生」的機率。
 # 若當天已有賽前預測，賽後那趟不會用它覆蓋（main._should_keep_pre_game）。
 # 產出：data/daily_predictions.json、data/history_log.csv（必要時一併刷新 team_ratings.json）
 on:
   schedule:
+    - cron: "0 6,9,12 * * *"
     - cron: "0 11 * * *"
     - cron: "30 22 * * *"
   workflow_dispatch:
@@ -69,10 +71,28 @@ jobs:
           fi
           python -m src.main --mode predict "${EXTRA_ARGS[@]}"
 
+      # 預測流程本身會回填賽果，但預測若失敗就會跳過，因此獨立再跑一次
+      # （idempotent，只補 actual_* / result_correct），確保命中率資料不中斷。
+      - name: Backfill finished games
+        if: always()
+        env:
+          PYTHONUNBUFFERED: "1"
+          TZ: "Asia/Taipei"
+          INPUT_DATE: ${{ inputs.date }}
+        run: |
+          set -euo pipefail
+          EXTRA_ARGS=()
+          if [ -n "${INPUT_DATE}" ]; then
+            EXTRA_ARGS+=(--date "${INPUT_DATE}")
+          fi
+          python -m src.main --mode settle "${EXTRA_ARGS[@]}"
+
       - name: Build static site
+        if: always()
         run: python -m src.build_site
 
       - name: Commit and push data changes
+        if: always()
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
