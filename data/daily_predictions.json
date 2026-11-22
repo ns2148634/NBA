@@ -3,21 +3,22 @@
   "season": "2026-27",
   "data_source": "espn",
   "game_date": "2026-11-21",
-  "generated_at": "2026-11-21T17:54:45+00:00",
-  "generated_at_taipei": "2026-11-22T01:54:45+08:00",
+  "generated_at": "2026-11-22T02:27:01+00:00",
+  "generated_at_taipei": "2026-11-22T10:27:01+08:00",
   "ratings_generated_at": "2026-11-21T15:06:37+00:00",
   "injury_report": {
     "source": "nbainjuries",
     "available": true,
-    "report_timestamp_et": "2026-11-21T12:45-05:00",
-    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-21_12_45PM.pdf",
+    "report_timestamp_et": "2026-11-21T21:15-05:00",
+    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-21_09_15PM.pdf",
     "warnings": [
       "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（473 人）。"
     ]
   },
   "games_count": 6,
   "warnings": [
-    "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（473 人）。"
+    "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（473 人）。",
+    "2026-11-21 有 5 場在開賽後才執行，已保留先前的賽前預測（賽果仍會回填）。"
   ],
   "predictions": [
     {
@@ -823,50 +824,116 @@
       "away_team_name": "Boston Celtics",
       "home_rating": 37.55,
       "away_rating": 60.21,
-      "home_injury_deduction": 0.0,
-      "away_injury_deduction": 2.47,
-      "home_effective_rating": 37.55,
-      "away_effective_rating": 57.74,
+      "home_injury_deduction": 1.12,
+      "away_injury_deduction": 5.16,
+      "home_effective_rating": 36.43,
+      "away_effective_rating": 55.05,
       "home_rest_days": 0,
       "away_rest_days": 2,
       "home_b2b": true,
       "away_b2b": false,
-      "predicted_margin": -19.04,
-      "predicted_home_score": 99.3,
-      "predicted_away_score": 118.3,
-      "predicted_total": 217.5,
-      "home_win_prob": 0.0563,
-      "away_win_prob": 0.9437,
+      "predicted_margin": -17.47,
+      "predicted_home_score": 99.1,
+      "predicted_away_score": 116.6,
+      "predicted_total": 215.6,
+      "home_win_prob": 0.0727,
+      "away_win_prob": 0.9273,
       "predicted_winner": "BOS",
       "predicted_winner_name": "Boston Celtics",
       "confidence": "high",
-      "home_injuries": [],
+      "home_injuries": [
+        {
+          "player": "Pedulla, Sean",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "G League - Two-Way",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        },
+        {
+          "player": "Raynaud, Maxime",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Right Patella Subluxation",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        },
+        {
+          "player": "Simmons, Ben",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Right Achilles Tendon Repair / Surgery",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        },
+        {
+          "player": "Mogbo, Jonathan",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "G League - Two-Way",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.0176,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 0.18
+        }
+      ],
       "away_injuries": [
         {
           "player": "Tatum, Jayson",
-          "status": "questionable",
-          "status_raw": "Questionable",
+          "status": "out",
+          "status_raw": "Out",
           "reason": "Rest",
           "category": "rest",
           "source": "nbainjuries",
-          "severity": 0.45,
+          "severity": 1.0,
           "impact_share": 0.2637,
           "matched": true,
           "match_score": 1.0,
-          "deduction": 1.23
+          "deduction": 2.74
         },
         {
           "player": "White, Derrick",
-          "status": "questionable",
-          "status_raw": "Questionable",
+          "status": "out",
+          "status_raw": "Out",
           "reason": "Injury/Illness - Left AC Joint Contusion",
           "category": "injury",
           "source": "nbainjuries",
-          "severity": 0.45,
+          "severity": 1.0,
           "impact_share": 0.1304,
           "matched": true,
           "match_score": 1.0,
-          "deduction": 0.61
+          "deduction": 1.36
+        },
+        {
+          "player": "Robinson, Mitchell",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Illness",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.0424,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 0.44
         },
         {
           "player": "Mitchell, Dillon",
@@ -901,9 +968,9 @@
         "away_rest_adjustment": 0.25,
         "pace": 113.55
       },
-      "generated_at": "2026-11-21T17:54:45+00:00",
+      "generated_at": "2026-11-22T02:27:01+00:00",
       "post_game": false,
-      "lead_time_minutes": 545
+      "lead_time_minutes": 33
     }
   ]
 }
