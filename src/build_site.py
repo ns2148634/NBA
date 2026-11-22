@@ -42,6 +42,9 @@ SITE_INDEX_PATH = DOCS_DIR / "index.html"
 #: 近期命中率表格顯示的賽事日數量
 RECENT_DAYS_WINDOW = 7
 
+#: 近 N 個賽事日的「賽前預測比例」低於此值就在頁面示警（排程延遲的可觀測指標）
+PRE_GAME_RATIO_WARN = 0.8
+
 #: 傷兵摘要每隊最多列出的球員數
 INJURY_NAMES_LIMIT = 3
 
@@ -203,6 +206,9 @@ def summarize_history(
     * ``total_settled`` / ``accuracy``：只算**賽前**產生的預測 → 正式命中率。
     * ``settled_rows`` / ``all_accuracy``：所有已回填場次（含開賽後才產生的預測）。
     * ``post_game_excluded`` / ``excluded_correct``：被排除的場次與其中命中數。
+    * ``pre_game_ratio`` / ``recent_pre_game_ratio``：賽前預測佔已回填場次的比例
+      （後者只看近 ``window`` 個賽事日，是排程是否健康的指標）。
+    * ``pre_game_health``：``ok`` / ``warn`` / ``bad``（門檻見 :data:`PRE_GAME_RATIO_WARN`）。
     * ``days``：只含有賽前預測的賽事日；``days_all`` 另含「整日都是賽後預測」的日子。
 
     既沒有 ``predicted_winner`` 也沒有 ``result_correct`` 的列無法計分，
@@ -263,6 +269,14 @@ def summarize_history(
 
     recent_games = sum(bucket["games"] for bucket in days_all)
     recent_correct = sum(bucket["correct"] for bucket in days_all)
+    recent_rows = sum(bucket["total"] for bucket in days_all)
+    recent_ratio = (recent_games / recent_rows) if recent_rows else 0.0
+    if not recent_rows or recent_ratio >= PRE_GAME_RATIO_WARN:
+        health = "ok"
+    elif recent_ratio >= PRE_GAME_RATIO_WARN / 2:
+        health = "warn"
+    else:
+        health = "bad"
     return {
         "settled_rows": len(settled_all),
         "all_correct": all_correct,
@@ -273,9 +287,13 @@ def summarize_history(
         "post_game_excluded": excluded_total,
         "excluded_correct": excluded_correct,
         "excluded_accuracy": (excluded_correct / excluded_total) if excluded_total else 0.0,
+        "pre_game_ratio": (counted_total / len(settled_all)) if settled_all else 0.0,
         "recent_games": recent_games,
         "recent_correct": recent_correct,
         "recent_accuracy": (recent_correct / recent_games) if recent_games else 0.0,
+        "recent_rows": recent_rows,
+        "recent_pre_game_ratio": recent_ratio,
+        "pre_game_health": health,
         "days": days,
         "days_all": days_all,
     }
@@ -524,6 +542,8 @@ def _render_history(summary: dict) -> str:
     all_accuracy = _pct(summary.get("all_accuracy"))
     recent_accuracy = _pct(summary.get("recent_accuracy"))
     days_all = summary.get("days_all") or []
+    recent_ratio = summary.get("recent_pre_game_ratio") or 0.0
+    health = str(summary.get("pre_game_health") or "ok")
 
     stats = "\n".join(
         [
@@ -534,6 +554,8 @@ def _render_history(summary: dict) -> str:
             f'  <span class="stat"><b>{all_accuracy}</b>全部命中率</span>',
             f'  <span class="stat"><b>{recent_accuracy}</b>'
             f"近 {len(days_all)} 個賽事日命中率</span>",
+            f'  <span class="stat"><b class="{_esc(health)}">{_pct(recent_ratio)}</b>'
+            f"近 {len(days_all)} 個賽事日賽前預測比例</span>",
             "</div>",
         ]
     )
@@ -558,6 +580,13 @@ def _render_history(summary: dict) -> str:
         notes.append(
             '<p class="sub">標示「全數賽後」的賽事日，當天所有預測都在開賽後才產生，'
             "因此不列入命中率。</p>"
+        )
+    if health != "ok":
+        notes.append(
+            f'<p class="sub note-warn">近 {len(days_all)} 個賽事日只有 '
+            f"{_pct(recent_ratio)} 的預測在開賽前產生"
+            f"（目標 ≥ {_pct(PRE_GAME_RATIO_WARN)}）；"
+            "多半是 GitHub 排程延遲，命中率的分母因此偏小。</p>"
         )
 
     rows = []
@@ -626,6 +655,10 @@ ul.warn-list li { margin: 2px 0; }
 .stats { display: flex; flex-wrap: wrap; gap: 22px; margin: 6px 0 14px; }
 .stat { color: #93a4c4; font-size: .8rem; }
 .stat b { display: block; color: #e8ecf7; font-size: 1.3rem; }
+.stat b.ok { color: #7ee2b8; }
+.stat b.warn { color: #ffcc80; }
+.stat b.bad { color: #ff9e9e; }
+.note-warn { color: #ffcc80; }
 .empty { color: #7f8fae; font-style: italic; margin: 0; }
 .win { color: #7ee2b8; font-weight: 600; }
 footer { margin-top: 40px; color: #7f8fae; font-size: .8rem; border-top: 1px solid #1b2740; padding-top: 14px; }
@@ -865,6 +898,15 @@ def _embed_json(predictions: dict | None, ratings: dict | None, moment: datetime
     return f'<script type="application/json" id="nba-data">{blob}</script>'
 
 
+def _predictions_heading(predictions: dict | None, moment: datetime) -> str:
+    """預測區塊標題：內容不是「今天（ET）」時不要寫成「今日預測」。"""
+    game_date = str((predictions or {}).get("game_date") or "").strip()
+    today_et = moment.astimezone(config.TZ_ET).date().isoformat()
+    if not game_date or game_date == today_et:
+        return "今日預測"
+    return f"{_esc(game_date)} 預測"
+
+
 def _render_html(
     ratings: dict | None,
     predictions: dict | None,
@@ -883,7 +925,7 @@ def _render_html(
         [
             _render_header(predictions, ratings, moment),
             _render_warnings(warnings),
-            "<h2>今日預測</h2>",
+            f"<h2>{_predictions_heading(predictions, moment)}</h2>",
             _render_predictions(predictions),
             "<h2>球隊戰力排行</h2>",
             _render_ratings(ratings),

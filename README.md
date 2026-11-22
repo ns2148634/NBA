@@ -39,7 +39,7 @@ NBA/
 │  └─ main.py                     # CLI 入口（base / predict / both / settle）
 ├─ tests/
 │  ├─ __init__.py
-│  └─ test_offline.py             # 64 個離線測試（合成資料，不需網路）
+│  └─ test_offline.py             # 80 個離線測試（合成資料，不需網路）
 ├─ requirements.txt
 └─ README.md
 ```
@@ -59,6 +59,9 @@ python -m src.main --mode base
 # 產生當日預測（含傷病扣分）
 python -m src.main --mode predict
 
+# 提前產生「隔日」預測（晚班／CI 用；目標日期 = 指定日期 + 1 天，ET）
+python -m src.main --mode predict --next-day
+
 # 一次做完兩件事
 python -m src.main --mode both
 
@@ -75,6 +78,7 @@ python -m src.build_site
 | --- | --- |
 | `--mode base\|predict\|both\|settle` | 執行模式，預設 `both` |
 | `--date YYYY-MM-DD` | 比賽日期（**美東時間 ET**），預設今天 |
+| `--next-day` | 目標日期往後推一天（「下一個美東賽事日」），只適用 `predict` / `both` |
 | `--season 2026-27` | 賽季字串，預設依日期推算（10 月起算新賽季） |
 | `--season-type "Regular Season"\|"Playoffs"` | 球季類型，預設例行賽 |
 | `--skip-injuries` | 不抓傷病報告、不套用傷病扣分 |
@@ -378,6 +382,9 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
   補寫回 CSV（idempotent），之後判定就固定下來。
 * 命中率有兩種算法：`賽前預測命中率` 只算開賽前產生的預測（正式數字），
   `全部命中率` 連賽後才產生的預測一起算（僅供參考）；兩者都公布，避免分母被誤解。
+* 靜態頁另外公布「近 7 個賽事日賽前預測比例」（`recent_pre_game_ratio`）：
+  ≥ 80% 顯示綠色、≥ 40% 黃色、其餘紅色，並提示可能是 GitHub 排程延遲，
+  用來一眼判斷命中率的分母是否健康（門檻見 `build_site.PRE_GAME_RATIO_WARN`）。
 
 ---
 
@@ -388,7 +395,7 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 | `A - Update Base Ratings` | `0 7 * * *` | 15:00 | 更新 `team_ratings.json` + 重建靜態頁 |
 | `B - Daily Injury & Prediction` | `0 6,9,12 * * *` | 14:00 / 17:00 / 20:00 | 早班：傷病 + 賽前預測 + 賽果回填 + 重建靜態頁 |
 | `B - Daily Injury & Prediction` | `0 11 * * *` | 19:00 | 主執行：同上（美東約 06:00） |
-| `B - Daily Injury & Prediction` | `30 22 * * *` | 隔日 06:30 | 備援／回填：若當天已存在賽前預測則不覆蓋 |
+| `B - Daily Injury & Prediction` | `30 22 * * *` | 隔日 06:30 | 備援／回填：若當天已存在賽前預測則不覆蓋，並用 `--next-day` 產生隔日預測 |
 
 * GitHub 排程常有 4–10 小時延遲，因此一天排多趟（美東約 01:00 / 04:00 / 06:00 / 07:00）；
   只要有任何一趟在開打前成功，`history_log.csv` 就會留下賽前預測，命中率的分母才不會失真。
@@ -396,6 +403,11 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
   （整份賽後→沿用舊檔；只開打部分場次→逐場保留該場次的賽前預測）。
 * 每次執行先 `--mode predict`，再用 `--mode settle` 獨立回填賽果（`if: always()`，
   預測步驟失敗也會補賽果），最後才重建靜態頁並 commit。
+* 晚班（`30 22 * * *`）會再用 `--mode predict --next-day` 產生**隔日**預測：即使隔天早班
+  延遲到開打後，`history_log.csv` 也已經有一筆賽前預測可以計分（`continue-on-error`，
+  失敗不影響當天資料的 commit）。手動觸發時可勾選 `next_day` 重現同樣行為。
+* `--mode predict` 如果在開賽後才落地，log 會印出「n/m 場在開賽後才產生預測（最晚落後 k 分鐘）」，
+  並在 Actions 上以 `::warning::` 標註（`main._warn_late_predictions`），排程延遲不必等到看頁面才發現。
 * 兩者共用 `concurrency: nba-data-write`，避免同時改寫 `data/`。
 * `permissions: contents: write`，commit 身分為 `github-actions[bot]`。
 * 兩支工作流都會在資料更新後執行 `python -m src.build_site`，並以 `git add data/ docs/` 一起提交，讓 Pages 內容與資料同步。
@@ -441,7 +453,7 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 python -m unittest discover -s tests -t . -v
 ```
 
-64 個離線測試（不需網路、不需 pandas）涵蓋：
+80 個離線測試（不需網路、不需 pandas）涵蓋：
 
 * EMA、收縮、25–75 夾限、`base_rating = 50 + expected_margin`
 * 傷病影響佔比、姓名正規化與同姓球員比對、狀態嚴重度、12 分上限
@@ -457,6 +469,8 @@ python -m unittest discover -s tests -t . -v
 * 賽前／賽後判定（`post_game`、`lead_time_minutes`）、賽後預測不覆蓋賽前預測（整份沿用＋逐場保留）、命中率排除賽後預測（含舊資料以 `predicted_at` 推算、缺 `result_correct` 時用比分重算、缺 `predicted_winner` 且缺 `result_correct` 的列不計分）、`post_game` 補寫回 CSV 的冪等性
 * 傷病快照寫入、快照失敗不影響預測、`--mode predict` 在「有傷兵但無球員數據」時仍能產出扣分
 * 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計（賽前／全部雙指標、逐日「賽後排除」欄）、產出頁面不含合併衝突標記且 `id="nba-data"` 只出現一次、「即時更新」按鈕與 `page_generated_at`
+* `--next-day` 的日期位移（`settle` 模式會被拒絕）、預測在開賽後落地時的 log 警告與 `::warning::` 標註、
+  「近 N 個賽事日賽前預測比例」的統計與顏色門檻、預測區塊標題在內容不是當天時改顯示日期
 
 ---
 

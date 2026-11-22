@@ -4,6 +4,7 @@
 
     python -m src.main --mode base
     python -m src.main --mode predict --date 2026-11-17
+    python -m src.main --mode predict --next-day   # 晚班：提前產生隔日預測
     python -m src.main --mode both --skip-injuries --dry-run
     python -m src.main --mode settle
 """
@@ -15,7 +16,7 @@ import json
 import logging
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from . import config, fetch_injuries, fetch_stats, rating_engine
 
@@ -38,6 +39,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="game_date",
         default=None,
         help="比賽日期（美東時間 YYYY-MM-DD），預設為今天",
+    )
+    parser.add_argument(
+        "--next-day",
+        dest="next_day",
+        action="store_true",
+        help="改為產生「下一個美東賽事日」的預測（晚班提前為隔日準備，不適用於 settle）",
     )
     parser.add_argument(
         "--season",
@@ -317,6 +324,35 @@ def _settle_history(args: argparse.Namespace, season: str, target_date: date) ->
     return updated
 
 
+def _warn_late_predictions(payload: dict) -> str | None:
+    """預測若在開賽後才產生，在 log 與 GitHub Actions 標註警告。
+
+    晚班（排程延遲）最容易發生：落地時當天比賽已開打，這些場次不能列入正式命中率。
+    把落後時間與比例寫進 log，Actions 上也會出現 ``::warning::`` 標註，延遲才看得見。
+    """
+    games = [game for game in (payload.get("predictions") or []) if game.get("game_id")]
+    if not games:
+        return None
+    late = [game for game in games if game.get("post_game")]
+    if not late:
+        return None
+    behind = 0
+    for game in late:
+        try:
+            behind = max(behind, -int(float(game.get("lead_time_minutes") or 0)))
+        except (TypeError, ValueError):
+            continue
+    message = (
+        f"{payload.get('game_date')} 有 {len(late)}/{len(games)} 場在開賽後才產生預測"
+        + (f"（最晚落後 {behind} 分鐘）" if behind else "")
+        + "，這些場次不列入正式命中率；請確認排程是否延遲。"
+    )
+    LOGGER.warning(message)
+    if os.environ.get("GITHUB_ACTIONS"):
+        print(f"::warning title=預測在開賽後才產生::{message}", flush=True)
+    return message
+
+
 def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dict:
     """產生 data/daily_predictions.json 並 upsert history_log.csv。"""
     ratings = load_or_refresh_ratings(args, season)
@@ -337,6 +373,7 @@ def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dic
         )
         payload["warnings"].append("賽程資料不可用，本次未產生任何預測。")
         _persist_predictions(args, payload)
+        _warn_late_predictions(payload)
         LOGGER.warning("本次不產生預測，結束時仍視為成功。")
         return payload
 
@@ -363,6 +400,7 @@ def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dic
         )
         payload["warnings"].append("當日沒有賽事。")
         _persist_predictions(args, payload)
+        _warn_late_predictions(payload)
         _log_predictions(payload)
         _settle_history(args, season, target_date)
         return payload
@@ -400,6 +438,7 @@ def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dic
         target_date=target_date,
     )
     _persist_predictions(args, payload)
+    _warn_late_predictions(payload)
     _log_predictions(payload)
     _settle_history(args, season, target_date)
     return payload
@@ -431,6 +470,11 @@ def main(argv: list[str] | None = None) -> int:
         target_date = parse_target_date(args.game_date) or config.now_utc().astimezone(
             config.TZ_ET
         ).date()
+        if args.next_day:
+            if args.mode == "settle":
+                LOGGER.error("--next-day 只適用於預測模式（predict / both）。")
+                return 2
+            target_date += timedelta(days=1)
         season = args.season or config.resolve_season(target_date)
     except ValueError as exc:
         LOGGER.error("%s", exc)

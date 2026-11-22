@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import types
@@ -1006,6 +1007,85 @@ class MainFlowTests(unittest.TestCase):
                 history["0022600996"]["predicted_at"], "2026-11-17T11:00:00+00:00"
             )
             self.assertEqual(history["0022600995"]["post_game"], "false")
+
+    def test_next_day_predicts_following_et_day(self) -> None:
+        game = {
+            "game_id": "0022600994",
+            "game_date": "2026-11-18",
+            "game_time_et": "19:30",
+            "game_time_taipei": "2026-11-19T08:30+08:00",
+            "home_team": "BOS",
+            "away_team": "NYK",
+            "home_rest_days": 1,
+            "away_rest_days": 1,
+            "home_b2b": False,
+            "away_b2b": False,
+            "is_neutral": False,
+            "status": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            predictions_path = directory / "daily_predictions.json"
+            with mock.patch.object(
+                config, "TEAM_RATINGS_PATH", directory / "team_ratings.json"
+            ), mock.patch.object(
+                config, "DAILY_PREDICTIONS_PATH", predictions_path
+            ), mock.patch.object(
+                config, "HISTORY_LOG_PATH", directory / "history_log.csv"
+            ), mock.patch.object(
+                fetch_stats, "fetch_all_team_stats", return_value=_stats_payload()
+            ), mock.patch.object(
+                fetch_stats,
+                "fetch_games_for_date",
+                return_value={"games": [game], "schedule": [], "warnings": []},
+            ) as games_mock, mock.patch.object(
+                fetch_stats, "fetch_team_game_log", return_value=[]
+            ), mock.patch.object(
+                fetch_injuries,
+                "fetch_injuries",
+                return_value={
+                    "source": "test",
+                    "available": False,
+                    "warnings": [],
+                    "by_team": {},
+                },
+            ):
+                exit_code = main_module.main(
+                    [
+                        "--mode",
+                        "predict",
+                        "--date",
+                        "2026-11-17",
+                        "--next-day",
+                        "--season",
+                        "2026-27",
+                        "--log-level",
+                        "ERROR",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            # --next-day 把目標日期往後推一天（ET 11-17 → 11-18）
+            self.assertEqual(str(games_mock.call_args[0][1]), "2026-11-18")
+            payload = json.loads(predictions_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["game_date"], "2026-11-18")
+            self.assertEqual(payload["games_count"], 1)
+
+    def test_next_day_rejected_in_settle_mode(self) -> None:
+        exit_code = main_module.main(
+            [
+                "--mode",
+                "settle",
+                "--date",
+                "2026-11-17",
+                "--next-day",
+                "--season",
+                "2026-27",
+                "--log-level",
+                "ERROR",
+            ]
+        )
+        self.assertEqual(exit_code, 2)
 
 
 def _espn_team(abbreviation: str) -> dict:
@@ -2021,6 +2101,20 @@ class SiteBuildTests(unittest.TestCase):
         self.assertEqual(html.count("<footer"), 1)
 
 
+    def test_predictions_heading_marks_other_game_date(self) -> None:
+        moment = datetime(2026, 11, 22, 23, 30, tzinfo=config.TZ_ET)
+        self.assertEqual(
+            build_site_module._predictions_heading({"game_date": "2026-11-22"}, moment),
+            "今日預測",
+        )
+        # 晚班提前產生隔日預測時，標題要寫出日期，不能假冒「今日」
+        self.assertEqual(
+            build_site_module._predictions_heading({"game_date": "2026-11-23"}, moment),
+            "2026-11-23 預測",
+        )
+        self.assertEqual(build_site_module._predictions_heading(None, moment), "今日預測")
+
+
 class PostGameGuardTests(unittest.TestCase):
     """賽前／賽後預測標記與命中率防護。"""
 
@@ -2206,6 +2300,41 @@ class PostGameGuardTests(unittest.TestCase):
         self.assertEqual(main_module._merge_pre_game_rows(existing, same_date), [])
         self.assertEqual(same_date["predictions"][0]["predicted_winner"], "BOS")
 
+    def test_late_predictions_emit_github_warning(self) -> None:
+        prediction = rating_engine.predict_game(
+            self.game,
+            self.ratings,
+            generated_at=datetime(2026, 11, 18, 3, 0, tzinfo=config.TZ_ET),
+        )
+        payload = {"game_date": "2026-11-17", "predictions": [prediction]}
+        with mock.patch.object(main_module.LOGGER, "warning") as warning, mock.patch.dict(
+            os.environ, {"GITHUB_ACTIONS": "true"}
+        ), mock.patch("builtins.print") as printed:
+            message = main_module._warn_late_predictions(payload)
+
+        self.assertIsNotNone(message)
+        self.assertIn("1/1", message)
+        self.assertIn("不列入正式命中率", message)
+        warning.assert_called_once()
+        # GitHub Actions 只解析 stdout 的 workflow command，不能用 logger（走 stderr）
+        printed.assert_called_once()
+        self.assertIn("::warning", printed.call_args[0][0])
+
+    def test_late_predictions_stay_silent_when_pre_game(self) -> None:
+        prediction = rating_engine.predict_game(
+            self.game,
+            self.ratings,
+            generated_at=datetime(2026, 11, 17, 12, 0, tzinfo=config.TZ_ET),
+        )
+        payload = {"game_date": "2026-11-17", "predictions": [prediction]}
+        with mock.patch.object(main_module.LOGGER, "warning") as warning:
+            self.assertIsNone(main_module._warn_late_predictions(payload))
+            # 沒有賽事（例如空檔日）時也不該吵
+            self.assertIsNone(
+                main_module._warn_late_predictions({"game_date": "2026-11-19"})
+            )
+        warning.assert_not_called()
+
 
 class HistorySummaryTests(unittest.TestCase):
     def test_summarize_history_counts_only_settled_games(self) -> None:
@@ -2354,6 +2483,73 @@ class HistorySummaryTests(unittest.TestCase):
         self.assertIn("全數賽後", html)
         # 沒有可計分場次時不能吐出「（0/0）」這種看不懂的數字。
         self.assertNotIn("（0/0）", html)
+
+    def test_summarize_history_reports_pre_game_ratio_health(self) -> None:
+        rows = [
+            {
+                "game_date": "2026-11-20",
+                "actual_home_score": "110",
+                "actual_away_score": "100",
+                "result_correct": "true",
+                "post_game": "false",
+            },
+            {
+                "game_date": "2026-11-20",
+                "actual_home_score": "99",
+                "actual_away_score": "90",
+                "result_correct": "true",
+                "post_game": "false",
+            },
+            {
+                "game_date": "2026-11-20",
+                "actual_home_score": "88",
+                "actual_away_score": "99",
+                "result_correct": "false",
+                "post_game": "true",
+            },
+        ]
+        summary = build_site_module.summarize_history(rows)
+        self.assertEqual(summary["recent_rows"], 3)
+        self.assertAlmostEqual(summary["recent_pre_game_ratio"], 2 / 3, places=4)
+        self.assertAlmostEqual(summary["pre_game_ratio"], 2 / 3, places=4)
+        self.assertEqual(summary["pre_game_health"], "warn")
+
+        healthy = build_site_module.summarize_history(rows[:2])
+        self.assertAlmostEqual(healthy["recent_pre_game_ratio"], 1.0)
+        self.assertEqual(healthy["pre_game_health"], "ok")
+
+        # 近 N 日的預測全都在開賽後才產生 → 排程明顯有問題
+        unhealthy = build_site_module.summarize_history(rows[2:])
+        self.assertAlmostEqual(unhealthy["recent_pre_game_ratio"], 0.0)
+        self.assertEqual(unhealthy["pre_game_health"], "bad")
+
+    def test_render_history_shows_pre_game_ratio_warning(self) -> None:
+        rows = [
+            {
+                "game_date": "2026-11-20",
+                "actual_home_score": "110",
+                "actual_away_score": "100",
+                "result_correct": "true",
+                "post_game": "false",
+            },
+            {
+                "game_date": "2026-11-20",
+                "actual_home_score": "90",
+                "actual_away_score": "99",
+                "result_correct": "false",
+                "post_game": "true",
+            },
+        ]
+        summary = build_site_module.summarize_history(rows)
+        html = build_site_module._render_history(summary)
+        self.assertIn("賽前預測比例", html)
+        self.assertIn('class="warn">50.0%', html)
+        self.assertIn("排程延遲", html)
+
+        healthy = build_site_module.summarize_history(rows[:1])
+        healthy_html = build_site_module._render_history(healthy)
+        self.assertIn('class="ok">100.0%', healthy_html)
+        self.assertNotIn("排程延遲", healthy_html)
 
 
 if __name__ == "__main__":

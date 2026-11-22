@@ -2,8 +2,9 @@ name: B - Daily Injury & Prediction
 
 # 排程 B：抓取官網傷病報告並產出當日預測。
 # 一天跑多趟（UTC 06/09/12 → 美東 01/04/07，UTC 11 → 美東 06:00），只要有一趟
-#   在開打前成功，就能保住「賽前預測」；UTC 22:30（台北隔日 06:30）作為備援與賽果回填。
-# GitHub 的 schedule 常延遲 4–10 小時，多時段可大幅降低「預測在開賽後才產生」的機率。
+#   在開打前成功，就能保住「賽前預測」；UTC 22:30（台北隔日 06:30）作為備援與賽果回填，
+#   並用 --next-day 順便產生「隔日」預測：隔天即使早班延遲或失敗，也已經有賽前預測。
+# GitHub 的 schedule 常延遲 4–10 小時，多時段 + 提前一晚可大幅降低「預測在開賽後才產生」的機率。
 # 若當天已有賽前預測，賽後那趟不會用它覆蓋（main._should_keep_pre_game）。
 # 產出：data/daily_predictions.json、data/history_log.csv（必要時一併刷新 team_ratings.json）
 on:
@@ -17,6 +18,11 @@ on:
         description: "比賽日期（美東時間 YYYY-MM-DD，留空代表今天）"
         required: false
         default: ""
+      next_day:
+        description: "同時產生下一個美東賽事日的預測（等同晚班行為）"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -57,6 +63,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      # 晚班（UTC 22:30）先產生「隔日」預測：隔天即使早班延遲或失敗，
+      # history_log.csv 也已經有一筆賽前預測，正式命中率的分母才不會失真。
+      # 放在當日預測之前，最後寫進 daily_predictions.json 的仍是「今天」的賽程，
+      # 首頁不會在晚上突然被隔日賽程蓋掉。失敗不影響 commit（continue-on-error）。
+      - name: Generate next-day predictions
+        if: github.event.schedule == '30 22 * * *' || inputs.next_day == true
+        continue-on-error: true
+        env:
+          PYTHONUNBUFFERED: "1"
+          TZ: "Asia/Taipei"
+          INPUT_DATE: ${{ inputs.date }}
+        run: |
+          set -euo pipefail
+          EXTRA_ARGS=()
+          if [ -n "${INPUT_DATE}" ]; then
+            EXTRA_ARGS+=(--date "${INPUT_DATE}")
+          fi
+          python -m src.main --mode predict --next-day "${EXTRA_ARGS[@]}"
 
       - name: Generate daily predictions
         env:
