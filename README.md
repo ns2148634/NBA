@@ -403,9 +403,10 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
   （整份賽後→沿用舊檔；只開打部分場次→逐場保留該場次的賽前預測）。
 * 每次執行先 `--mode predict`，再用 `--mode settle` 獨立回填賽果（`if: always()`，
   預測步驟失敗也會補賽果），最後才重建靜態頁並 commit。
-* 晚班（`30 22 * * *`）會再用 `--mode predict --next-day` 產生**隔日**預測：即使隔天早班
-  延遲到開打後，`history_log.csv` 也已經有一筆賽前預測可以計分（`continue-on-error`，
-  失敗不影響當天資料的 commit）。手動觸發時可勾選 `next_day` 重現同樣行為。
+* 晚班（`30 22 * * *`）會在當日預測**之前**先跑一次 `--mode predict --next-day` 產生**隔日**預測：
+  即使隔天早班延遲到開打後，`history_log.csv` 也已經有一筆賽前預測可以計分
+  （`continue-on-error`，失敗不影響當天資料的 commit；最後寫回 `daily_predictions.json`
+  的仍是當天賽程，首頁不會被隔日賽程蓋掉）。手動觸發時可勾選 `next_day` 重現同樣行為。
 * `--mode predict` 如果在開賽後才落地，log 會印出「n/m 場在開賽後才產生預測（最晚落後 k 分鐘）」，
   並在 Actions 上以 `::warning::` 標註（`main._warn_late_predictions`），排程延遲不必等到看頁面才發現。
 * 兩者共用 `concurrency: nba-data-write`，避免同時改寫 `data/`。
