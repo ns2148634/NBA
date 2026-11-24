@@ -3,14 +3,14 @@
   "season": "2026-27",
   "data_source": "espn",
   "game_date": "2026-11-24",
-  "generated_at": "2026-11-24T16:41:18+00:00",
-  "generated_at_taipei": "2026-11-25T00:41:18+08:00",
-  "ratings_generated_at": "2026-11-23T18:59:24+00:00",
+  "generated_at": "2026-11-24T21:01:04+00:00",
+  "generated_at_taipei": "2026-11-25T05:01:04+08:00",
+  "ratings_generated_at": "2026-11-24T18:39:31+00:00",
   "injury_report": {
     "source": "nbainjuries",
     "available": true,
-    "report_timestamp_et": "2026-11-24T11:30-05:00",
-    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-24_11_30AM.pdf",
+    "report_timestamp_et": "2026-11-24T16:00-05:00",
+    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-24_04_00PM.pdf",
     "warnings": [
       "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（481 人）。"
     ]
@@ -45,8 +45,8 @@
       "away_b2b": false,
       "predicted_margin": -3.56,
       "predicted_home_score": 105.3,
-      "predicted_away_score": 108.9,
-      "predicted_total": 214.2,
+      "predicted_away_score": 108.8,
+      "predicted_total": 214.1,
       "home_win_prob": 0.3834,
       "away_win_prob": 0.6166,
       "predicted_winner": "DET",
@@ -216,11 +216,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
-        "pace": 113.33
+        "pace": 113.43
       },
-      "generated_at": "2026-11-24T16:41:18+00:00",
+      "generated_at": "2026-11-24T21:01:04+00:00",
       "post_game": false,
-      "lead_time_minutes": 439
+      "lead_time_minutes": 179
     },
     {
       "game_id": "401909315",
@@ -237,20 +237,20 @@
       "away_team_name": "Boston Celtics",
       "home_rating": 44.44,
       "away_rating": 58.91,
-      "home_injury_deduction": 1.48,
+      "home_injury_deduction": 1.49,
       "away_injury_deduction": 1.05,
-      "home_effective_rating": 42.96,
+      "home_effective_rating": 42.95,
       "away_effective_rating": 57.86,
       "home_rest_days": 1,
       "away_rest_days": 1,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": -12.3,
-      "predicted_home_score": 99.5,
-      "predicted_away_score": 111.8,
-      "predicted_total": 211.3,
-      "home_win_prob": 0.1527,
-      "away_win_prob": 0.8473,
+      "predicted_margin": -12.31,
+      "predicted_home_score": 99.4,
+      "predicted_away_score": 111.7,
+      "predicted_total": 211.1,
+      "home_win_prob": 0.1525,
+      "away_win_prob": 0.8475,
       "predicted_winner": "BOS",
       "predicted_winner_name": "Boston Celtics",
       "confidence": "high",
@@ -306,6 +306,19 @@
           "matched": false,
           "match_score": 0.0,
           "deduction": 0.31
+        },
+        {
+          "player": "Mann, Tre",
+          "status": "questionable",
+          "status_raw": "Questionable",
+          "reason": "Injury/Illness - Illness",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 0.45,
+          "impact_share": 0.0023,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 0.01
         },
         {
           "player": "Okpara, Felix",
@@ -366,11 +379,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
-        "pace": 113.33
+        "pace": 113.43
       },
-      "generated_at": "2026-11-24T16:41:18+00:00",
+      "generated_at": "2026-11-24T21:01:04+00:00",
       "post_game": false,
-      "lead_time_minutes": 499
+      "lead_time_minutes": 239
     },
     {
       "game_id": "401909316",
@@ -396,9 +409,9 @@
       "home_b2b": false,
       "away_b2b": false,
       "predicted_margin": 6.84,
-      "predicted_home_score": 118.2,
+      "predicted_home_score": 118.1,
       "predicted_away_score": 111.3,
-      "predicted_total": 229.5,
+      "predicted_total": 229.4,
       "home_win_prob": 0.7157,
       "away_win_prob": 0.2843,
       "predicted_winner": "DEN",
@@ -476,11 +489,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
-        "pace": 113.33
+        "pace": 113.43
       },
-      "generated_at": "2026-11-24T16:41:18+00:00",
+      "generated_at": "2026-11-24T21:01:04+00:00",
       "post_game": false,
-      "lead_time_minutes": 619
+      "lead_time_minutes": 359
     }
   ]
 }
