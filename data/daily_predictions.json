@@ -3,21 +3,21 @@
   "season": "2026-27",
   "data_source": "espn",
   "game_date": "2026-11-24",
-  "generated_at": "2026-11-24T06:13:39+00:00",
-  "generated_at_taipei": "2026-11-24T14:13:39+08:00",
+  "generated_at": "2026-11-24T16:41:18+00:00",
+  "generated_at_taipei": "2026-11-25T00:41:18+08:00",
   "ratings_generated_at": "2026-11-23T18:59:24+00:00",
   "injury_report": {
     "source": "nbainjuries",
     "available": true,
-    "report_timestamp_et": "2026-11-24T01:00-05:00",
-    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-24_01_00AM.pdf",
+    "report_timestamp_et": "2026-11-24T11:30-05:00",
+    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-24_11_30AM.pdf",
     "warnings": [
-      "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（474 人）。"
+      "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（481 人）。"
     ]
   },
   "games_count": 3,
   "warnings": [
-    "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（474 人）。"
+    "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（481 人）。"
   ],
   "predictions": [
     {
@@ -218,9 +218,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.33
       },
-      "generated_at": "2026-11-24T06:13:39+00:00",
+      "generated_at": "2026-11-24T16:41:18+00:00",
       "post_game": false,
-      "lead_time_minutes": 1066
+      "lead_time_minutes": 439
     },
     {
       "game_id": "401909315",
@@ -368,9 +368,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.33
       },
-      "generated_at": "2026-11-24T06:13:39+00:00",
+      "generated_at": "2026-11-24T16:41:18+00:00",
       "post_game": false,
-      "lead_time_minutes": 1126
+      "lead_time_minutes": 499
     },
     {
       "game_id": "401909316",
@@ -478,9 +478,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.33
       },
-      "generated_at": "2026-11-24T06:13:39+00:00",
+      "generated_at": "2026-11-24T16:41:18+00:00",
       "post_game": false,
-      "lead_time_minutes": 1246
+      "lead_time_minutes": 619
     }
   ]
 }
