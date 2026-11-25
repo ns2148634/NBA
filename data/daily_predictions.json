@@ -3,14 +3,14 @@
   "season": "2026-27",
   "data_source": "espn",
   "game_date": "2026-11-25",
-  "generated_at": "2026-11-25T16:25:31+00:00",
-  "generated_at_taipei": "2026-11-26T00:25:31+08:00",
-  "ratings_generated_at": "2026-11-24T18:39:31+00:00",
+  "generated_at": "2026-11-25T20:24:59+00:00",
+  "generated_at_taipei": "2026-11-26T04:24:59+08:00",
+  "ratings_generated_at": "2026-11-25T17:49:44+00:00",
   "injury_report": {
     "source": "nbainjuries",
     "available": true,
-    "report_timestamp_et": "2026-11-25T11:15-05:00",
-    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-25_11_15AM.pdf",
+    "report_timestamp_et": "2026-11-25T15:15-05:00",
+    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-25_03_15PM.pdf",
     "warnings": [
       "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（481 人）。"
     ]
@@ -35,36 +35,36 @@
       "away_team_name": "Miami Heat",
       "home_rating": 50.14,
       "away_rating": 53.69,
-      "home_injury_deduction": 1.53,
-      "away_injury_deduction": 1.79,
-      "home_effective_rating": 48.61,
-      "away_effective_rating": 51.9,
+      "home_injury_deduction": 1.94,
+      "away_injury_deduction": 1.01,
+      "home_effective_rating": 48.2,
+      "away_effective_rating": 52.68,
       "home_rest_days": 1,
       "away_rest_days": 2,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": -0.94,
-      "predicted_home_score": 119.7,
-      "predicted_away_score": 120.6,
-      "predicted_total": 240.3,
-      "home_win_prob": 0.4688,
-      "away_win_prob": 0.5312,
+      "predicted_margin": -2.13,
+      "predicted_home_score": 119.2,
+      "predicted_away_score": 121.4,
+      "predicted_total": 240.6,
+      "home_win_prob": 0.4296,
+      "away_win_prob": 0.5704,
       "predicted_winner": "MIA",
       "predicted_winner_name": "Miami Heat",
       "confidence": "low",
       "home_injuries": [
         {
           "player": "Embiid, Joel",
-          "status": "doubtful",
-          "status_raw": "Doubtful",
+          "status": "out",
+          "status_raw": "Out",
           "reason": "Injury/Illness - Illness",
           "category": "injury",
           "source": "nbainjuries",
-          "severity": 0.75,
+          "severity": 1.0,
           "impact_share": 0.1562,
           "matched": true,
           "match_score": 1.0,
-          "deduction": 1.22
+          "deduction": 1.62
         },
         {
           "player": "Hukporti, Ariel",
@@ -83,16 +83,16 @@
       "away_injuries": [
         {
           "player": "Antetokounmpo, Giannis",
-          "status": "questionable",
-          "status_raw": "Questionable",
+          "status": "probable",
+          "status_raw": "Probable",
           "reason": "Injury/Illness - Right Groin Tendinitis",
           "category": "injury",
           "source": "nbainjuries",
-          "severity": 0.45,
+          "severity": 0.15,
           "impact_share": 0.2498,
           "matched": true,
           "match_score": 1.0,
-          "deduction": 1.17
+          "deduction": 0.39
         },
         {
           "player": "Donaldson, Tre",
@@ -125,11 +125,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.25,
-        "pace": 113.43
+        "pace": 113.4
       },
-      "generated_at": "2026-11-25T16:25:31+00:00",
+      "generated_at": "2026-11-25T20:24:59+00:00",
       "post_game": false,
-      "lead_time_minutes": 334
+      "lead_time_minutes": 95
     },
     {
       "game_id": "401909318",
@@ -146,24 +146,37 @@
       "away_team_name": "Chicago Bulls",
       "home_rating": 39.83,
       "away_rating": 47.65,
-      "home_injury_deduction": 2.54,
-      "away_injury_deduction": 4.12,
-      "home_effective_rating": 37.29,
-      "away_effective_rating": 43.53,
+      "home_injury_deduction": 3.24,
+      "away_injury_deduction": 3.8,
+      "home_effective_rating": 36.59,
+      "away_effective_rating": 43.85,
       "home_rest_days": 1,
       "away_rest_days": 1,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": -3.64,
-      "predicted_home_score": 108.4,
-      "predicted_away_score": 112.1,
-      "predicted_total": 220.5,
-      "home_win_prob": 0.3808,
-      "away_win_prob": 0.6192,
+      "predicted_margin": -4.66,
+      "predicted_home_score": 107.9,
+      "predicted_away_score": 112.5,
+      "predicted_total": 220.4,
+      "home_win_prob": 0.3489,
+      "away_win_prob": 0.6511,
       "predicted_winner": "CHI",
       "predicted_winner_name": "Chicago Bulls",
-      "confidence": "low",
+      "confidence": "medium",
       "home_injuries": [
+        {
+          "player": "Allen, Grayson",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Concussion Protocol",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.105,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 1.09
+        },
         {
           "player": "Schroder, Dennis",
           "status": "out",
@@ -178,17 +191,17 @@
           "deduction": 1.01
         },
         {
-          "player": "Allen, Grayson",
-          "status": "questionable",
-          "status_raw": "Questionable",
-          "reason": "Concussion Protocol",
+          "player": "Kalkbrenner, Ryan",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Left Hip Soreness / Tightness",
           "category": "injury",
           "source": "nbainjuries",
-          "severity": 0.45,
-          "impact_share": 0.105,
+          "severity": 1.0,
+          "impact_share": 0.0382,
           "matched": true,
           "match_score": 1.0,
-          "deduction": 0.49
+          "deduction": 0.4
         },
         {
           "player": "Ajayi, Michael",
@@ -215,19 +228,6 @@
           "matched": false,
           "match_score": 0.0,
           "deduction": 0.31
-        },
-        {
-          "player": "Kalkbrenner, Ryan",
-          "status": "doubtful",
-          "status_raw": "Doubtful",
-          "reason": "Injury/Illness - Left Hip Soreness / Tightness",
-          "category": "injury",
-          "source": "nbainjuries",
-          "severity": 0.75,
-          "impact_share": 0.0382,
-          "matched": true,
-          "match_score": 1.0,
-          "deduction": 0.3
         },
         {
           "player": "James, Sion",
@@ -297,19 +297,6 @@
           "deduction": 0.52
         },
         {
-          "player": "Robinson, Orlando",
-          "status": "out",
-          "status_raw": "Out",
-          "reason": "Not With Team",
-          "category": "injury",
-          "source": "nbainjuries",
-          "severity": 1.0,
-          "impact_share": 0.03,
-          "matched": false,
-          "match_score": 0.0,
-          "deduction": 0.31
-        },
-        {
           "player": "Awaka, Tobe",
           "status": "out",
           "status_raw": "Out",
@@ -340,11 +327,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
-        "pace": 113.43
+        "pace": 113.4
       },
-      "generated_at": "2026-11-25T16:25:31+00:00",
+      "generated_at": "2026-11-25T20:24:59+00:00",
       "post_game": false,
-      "lead_time_minutes": 454
+      "lead_time_minutes": 215
     },
     {
       "game_id": "401909319",
@@ -361,20 +348,20 @@
       "away_team_name": "Cleveland Cavaliers",
       "home_rating": 56.7,
       "away_rating": 50.79,
-      "home_injury_deduction": 3.39,
+      "home_injury_deduction": 3.58,
       "away_injury_deduction": 2.54,
-      "home_effective_rating": 53.31,
+      "home_effective_rating": 53.12,
       "away_effective_rating": 48.25,
       "home_rest_days": 2,
       "away_rest_days": 1,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": 7.91,
-      "predicted_home_score": 112.3,
-      "predicted_away_score": 104.4,
+      "predicted_margin": 7.72,
+      "predicted_home_score": 112.2,
+      "predicted_away_score": 104.5,
       "predicted_total": 216.7,
-      "home_win_prob": 0.7451,
-      "away_win_prob": 0.2549,
+      "home_win_prob": 0.74,
+      "away_win_prob": 0.26,
       "predicted_winner": "NYK",
       "predicted_winner_name": "New York Knicks",
       "confidence": "medium",
@@ -393,43 +380,56 @@
           "deduction": 1.56
         },
         {
-          "player": "Towns, Karl-Anthony",
+          "player": "Brunson, Jalen",
           "status": "questionable",
           "status_raw": "Questionable",
+          "reason": "Injury/Illness - Illness",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 0.45,
+          "impact_share": 0.2249,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 1.05
+        },
+        {
+          "player": "Towns, Karl-Anthony",
+          "status": "probable",
+          "status_raw": "Probable",
           "reason": "Injury/Illness - Right Knee Inflammation",
           "category": "injury",
           "source": "nbainjuries",
-          "severity": 0.45,
+          "severity": 0.15,
           "impact_share": 0.228,
           "matched": true,
           "match_score": 1.0,
-          "deduction": 1.07
-        },
-        {
-          "player": "Hart, Josh",
-          "status": "questionable",
-          "status_raw": "Questionable",
-          "reason": "Injury/Illness - Right Shoulder Sprain",
-          "category": "injury",
-          "source": "nbainjuries",
-          "severity": 0.45,
-          "impact_share": 0.1031,
-          "matched": true,
-          "match_score": 1.0,
-          "deduction": 0.48
+          "deduction": 0.36
         },
         {
           "player": "McBride, Miles",
-          "status": "questionable",
-          "status_raw": "Questionable",
+          "status": "out",
+          "status_raw": "Out",
           "reason": "Injury/Illness - Left Adductor Tightness",
           "category": "injury",
           "source": "nbainjuries",
-          "severity": 0.45,
+          "severity": 1.0,
           "impact_share": 0.0315,
           "matched": true,
           "match_score": 1.0,
-          "deduction": 0.15
+          "deduction": 0.33
+        },
+        {
+          "player": "Hart, Josh",
+          "status": "probable",
+          "status_raw": "Probable",
+          "reason": "Injury/Illness - Right Shoulder Sprain",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 0.15,
+          "impact_share": 0.1031,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 0.16
         },
         {
           "player": "Clarkson, Jordan",
@@ -516,11 +516,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.85,
         "away_rest_adjustment": 0.0,
-        "pace": 113.43
+        "pace": 113.4
       },
-      "generated_at": "2026-11-25T16:25:31+00:00",
+      "generated_at": "2026-11-25T20:24:59+00:00",
       "post_game": false,
-      "lead_time_minutes": 484
+      "lead_time_minutes": 245
     },
     {
       "game_id": "401909320",
@@ -547,7 +547,7 @@
       "away_b2b": false,
       "predicted_margin": -5.63,
       "predicted_home_score": 104.8,
-      "predicted_away_score": 110.4,
+      "predicted_away_score": 110.5,
       "predicted_total": 215.3,
       "home_win_prob": 0.3195,
       "away_win_prob": 0.6805,
@@ -705,11 +705,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
-        "pace": 113.43
+        "pace": 113.4
       },
-      "generated_at": "2026-11-25T16:25:31+00:00",
+      "generated_at": "2026-11-25T20:24:59+00:00",
       "post_game": false,
-      "lead_time_minutes": 484
+      "lead_time_minutes": 245
     },
     {
       "game_id": "401909321",
@@ -727,19 +727,19 @@
       "home_rating": 58.26,
       "away_rating": 42.92,
       "home_injury_deduction": 3.18,
-      "away_injury_deduction": 0.44,
+      "away_injury_deduction": 0.45,
       "home_effective_rating": 55.08,
-      "away_effective_rating": 42.48,
+      "away_effective_rating": 42.47,
       "home_rest_days": 1,
       "away_rest_days": 1,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": 15.2,
-      "predicted_home_score": 123.3,
-      "predicted_away_score": 108.1,
-      "predicted_total": 231.5,
-      "home_win_prob": 0.8974,
-      "away_win_prob": 0.1026,
+      "predicted_margin": 15.21,
+      "predicted_home_score": 123.4,
+      "predicted_away_score": 108.2,
+      "predicted_total": 231.6,
+      "home_win_prob": 0.8975,
+      "away_win_prob": 0.1025,
       "predicted_winner": "MEM",
       "predicted_winner_name": "Memphis Grizzlies",
       "confidence": "high",
@@ -849,17 +849,30 @@
           "matched": true,
           "match_score": 1.0,
           "deduction": 0.03
+        },
+        {
+          "player": "Pickett, Jalen",
+          "status": "questionable",
+          "status_raw": "Questionable",
+          "reason": "G League - Two-Way",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 0.45,
+          "impact_share": 0.003,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 0.01
         }
       ],
       "factors": {
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
-        "pace": 113.43
+        "pace": 113.4
       },
-      "generated_at": "2026-11-25T16:25:31+00:00",
+      "generated_at": "2026-11-25T20:24:59+00:00",
       "post_game": false,
-      "lead_time_minutes": 514
+      "lead_time_minutes": 275
     },
     {
       "game_id": "401909322",
@@ -887,7 +900,7 @@
       "predicted_margin": 4.6,
       "predicted_home_score": 119.3,
       "predicted_away_score": 114.7,
-      "predicted_total": 234.0,
+      "predicted_total": 234.1,
       "home_win_prob": 0.6493,
       "away_win_prob": 0.3507,
       "predicted_winner": "MIL",
@@ -978,11 +991,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
-        "pace": 113.43
+        "pace": 113.4
       },
-      "generated_at": "2026-11-25T16:25:31+00:00",
+      "generated_at": "2026-11-25T20:24:59+00:00",
       "post_game": false,
-      "lead_time_minutes": 514
+      "lead_time_minutes": 275
     },
     {
       "game_id": "401909323",
@@ -1009,8 +1022,8 @@
       "away_b2b": false,
       "predicted_margin": 5.32,
       "predicted_home_score": 117.9,
-      "predicted_away_score": 112.5,
-      "predicted_total": 230.4,
+      "predicted_away_score": 112.6,
+      "predicted_total": 230.5,
       "home_win_prob": 0.6712,
       "away_win_prob": 0.3288,
       "predicted_winner": "HOU",
@@ -1063,11 +1076,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
-        "pace": 113.43
+        "pace": 113.4
       },
-      "generated_at": "2026-11-25T16:25:31+00:00",
+      "generated_at": "2026-11-25T20:24:59+00:00",
       "post_game": false,
-      "lead_time_minutes": 544
+      "lead_time_minutes": 305
     },
     {
       "game_id": "401909324",
@@ -1093,9 +1106,9 @@
       "home_b2b": false,
       "away_b2b": false,
       "predicted_margin": 7.74,
-      "predicted_home_score": 113.9,
+      "predicted_home_score": 114.0,
       "predicted_away_score": 106.2,
-      "predicted_total": 220.1,
+      "predicted_total": 220.2,
       "home_win_prob": 0.7405,
       "away_win_prob": 0.2595,
       "predicted_winner": "GSW",
@@ -1226,11 +1239,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.85,
         "away_rest_adjustment": 0.0,
-        "pace": 113.43
+        "pace": 113.4
       },
-      "generated_at": "2026-11-25T16:25:31+00:00",
+      "generated_at": "2026-11-25T20:24:59+00:00",
       "post_game": false,
-      "lead_time_minutes": 634
+      "lead_time_minutes": 395
     },
     {
       "game_id": "401909325",
@@ -1256,8 +1269,8 @@
       "home_b2b": false,
       "away_b2b": false,
       "predicted_margin": -3.41,
-      "predicted_home_score": 108.3,
-      "predicted_away_score": 111.7,
+      "predicted_home_score": 108.4,
+      "predicted_away_score": 111.8,
       "predicted_total": 220.1,
       "home_win_prob": 0.3881,
       "away_win_prob": 0.6119,
@@ -1389,11 +1402,11 @@
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
-        "pace": 113.43
+        "pace": 113.4
       },
-      "generated_at": "2026-11-25T16:25:31+00:00",
+      "generated_at": "2026-11-25T20:24:59+00:00",
       "post_game": false,
-      "lead_time_minutes": 634
+      "lead_time_minutes": 395
     }
   ]
 }
