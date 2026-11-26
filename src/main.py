@@ -4,7 +4,7 @@
 
     python -m src.main --mode base
     python -m src.main --mode predict --date 2026-11-17
-    python -m src.main --mode predict --next-day   # 晚班：提前產生隔日預測
+    python -m src.main --mode predict --next-day   # 下一賽事日 → data/next_predictions.json
     python -m src.main --mode both --skip-injuries --dry-run
     python -m src.main --mode settle
 """
@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from . import config, fetch_injuries, fetch_stats, rating_engine
 
@@ -44,7 +45,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--next-day",
         dest="next_day",
         action="store_true",
-        help="改為產生「下一個美東賽事日」的預測（晚班提前為隔日準備，不適用於 settle）",
+        help=(
+            "改為產生「下一個美東賽事日」的預測，寫入 data/next_predictions.json"
+            "（不覆蓋當日預測；不適用於 settle）"
+        ),
     )
     parser.add_argument(
         "--season",
@@ -201,16 +205,27 @@ def load_or_refresh_ratings(args: argparse.Namespace, season: str) -> dict:
     return run_base(args, season)
 
 
-def _load_existing_predictions() -> dict:
-    """讀取既有的 daily_predictions.json（讀不到就回傳空 dict）。"""
-    path = config.DAILY_PREDICTIONS_PATH
+def _prediction_target_path(args: argparse.Namespace | None = None) -> Path:
+    """本次預測要寫入的檔案。
+
+    ``--next-day`` 寫 ``data/next_predictions.json``（給頁面的「下一賽事日」區塊），
+    其餘一律寫 ``data/daily_predictions.json``，避免隔日預測覆蓋當日預測。
+    """
+    if args is not None and getattr(args, "next_day", False):
+        return Path(config.NEXT_PREDICTIONS_PATH)
+    return Path(config.DAILY_PREDICTIONS_PATH)
+
+
+def _load_existing_predictions(path: str | Path | None = None) -> dict:
+    """讀取既有的預測檔（預設 daily_predictions.json；讀不到就回傳空 dict）。"""
+    target = Path(path or config.DAILY_PREDICTIONS_PATH)
     try:
-        if not path.exists():
+        if not target.exists():
             return {}
-        with path.open("r", encoding="utf-8") as handle:
+        with target.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
     except (OSError, json.JSONDecodeError) as exc:
-        LOGGER.warning("讀取既有預測檔失敗：%s", exc)
+        LOGGER.warning("讀取既有預測檔失敗（%s）：%s", target, exc)
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -262,15 +277,16 @@ def _merge_pre_game_rows(existing: dict, payload: dict) -> list[str]:
 
 
 def _persist_predictions(args: argparse.Namespace, payload: dict) -> None:
+    target = _prediction_target_path(args)
     if args.dry_run:
         LOGGER.info(
             "--dry-run：不寫入 %s 與 %s",
-            config.DAILY_PREDICTIONS_PATH,
+            target,
             config.HISTORY_LOG_PATH,
         )
         return
     persisted = payload
-    existing = _load_existing_predictions()
+    existing = _load_existing_predictions(target)
     if _should_keep_pre_game(existing, payload):
         message = (
             f"{payload.get('game_date')} 的既有預測是賽前產生，"
@@ -282,7 +298,7 @@ def _persist_predictions(args: argparse.Namespace, payload: dict) -> None:
         warnings = persisted.setdefault("warnings", [])
         if message not in warnings:
             warnings.append(message)
-        rating_engine.write_json(config.DAILY_PREDICTIONS_PATH, persisted)
+        rating_engine.write_json(target, persisted)
     else:
         kept = _merge_pre_game_rows(existing, payload)
         if kept:
@@ -292,14 +308,14 @@ def _persist_predictions(args: argparse.Namespace, payload: dict) -> None:
             )
             LOGGER.warning(message)
             payload.setdefault("warnings", []).append(message)
-        rating_engine.write_json(config.DAILY_PREDICTIONS_PATH, payload)
+        rating_engine.write_json(target, payload)
     history_rows = rating_engine.build_history_rows(persisted)
     total_rows, written_rows = rating_engine.upsert_history(
         config.HISTORY_LOG_PATH, history_rows
     )
     LOGGER.info(
         "已寫入 %s（%d 場）與 history_log.csv（總計 %d 列，本次寫入 %d 列）",
-        config.DAILY_PREDICTIONS_PATH,
+        target,
         persisted.get("games_count") or 0,
         total_rows,
         written_rows,

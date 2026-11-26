@@ -10,7 +10,7 @@
 
 所有結果都直接 commit 回倉庫，不需要任何外部資料庫或伺服器。
 
-**線上版（每日自動更新）**：[https://ns2148634.github.io/NBA/](https://ns2148634.github.io/NBA/) — 由 `python -m src.build_site` 產生的靜態頁面，顯示今日預測、30 隊戰力排行與近期命中率。
+**線上版（每日自動更新）**：[https://ns2148634.github.io/NBA/](https://ns2148634.github.io/NBA/) — 由 `python -m src.build_site` 產生的靜態頁面，顯示今日預測、下一賽事日預測、30 隊戰力排行與近期命中率。
 
 ---
 
@@ -20,11 +20,12 @@
 NBA/
 ├─ .github/workflows/
 │  ├─ update_base_rating.yml      # 排程 A：每天更新基礎戰力分
-│  ├─ daily_prediction.yml        # 排程 B：抓傷病 + 產生當日預測
+│  ├─ daily_prediction.yml        # 排程 B：抓傷病 + 產生當日／下一賽事日預測
 │  └─ probe_sources.yml           # 手動診斷：印出各資料來源的可用性
 ├─ data/                          # 會被 GitHub Actions commit 的產出
 │  ├─ team_ratings.json           # 30 隊基礎戰力分
 │  ├─ daily_predictions.json      # 當日預測（每日覆寫）
+│  ├─ next_predictions.json       # 下一賽事日預測（每次排程都更新）
 │  └─ history_log.csv             # 歷史預測 + 賽果回填（累積）
 ├─ docs/
 │  └─ index.html                  # GitHub Pages 靜態戰報（自動產生，勿手改）
@@ -39,7 +40,7 @@ NBA/
 │  └─ main.py                     # CLI 入口（base / predict / both / settle）
 ├─ tests/
 │  ├─ __init__.py
-│  └─ test_offline.py             # 80 個離線測試（合成資料，不需網路）
+│  └─ test_offline.py             # 84 個離線測試（合成資料，不需網路）
 ├─ requirements.txt
 └─ README.md
 ```
@@ -59,7 +60,8 @@ python -m src.main --mode base
 # 產生當日預測（含傷病扣分）
 python -m src.main --mode predict
 
-# 提前產生「隔日」預測（晚班／CI 用；目標日期 = 指定日期 + 1 天，ET）
+# 產生「下一個美東賽事日」的預測（目標日期 = 指定日期 + 1 天，ET）
+# 寫入 data/next_predictions.json（不覆蓋 daily_predictions.json）
 python -m src.main --mode predict --next-day
 
 # 一次做完兩件事
@@ -78,7 +80,7 @@ python -m src.build_site
 | --- | --- |
 | `--mode base\|predict\|both\|settle` | 執行模式，預設 `both` |
 | `--date YYYY-MM-DD` | 比賽日期（**美東時間 ET**），預設今天 |
-| `--next-day` | 目標日期往後推一天（「下一個美東賽事日」），只適用 `predict` / `both` |
+| `--next-day` | 目標日期往後推一天（「下一個美東賽事日」），寫入 `data/next_predictions.json`，只適用 `predict` / `both` |
 | `--season 2026-27` | 賽季字串，預設依日期推算（10 月起算新賽季） |
 | `--season-type "Regular Season"\|"Playoffs"` | 球季類型，預設例行賽 |
 | `--skip-injuries` | 不抓傷病報告、不套用傷病扣分 |
@@ -356,8 +358,27 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 > 被保留的場次連 `generated_at` 都維持原值，因此 `predicted_at` 不會變成賽後時間。
 > 賽後預測不計入「賽前預測命中率」，靜態頁會標示「部分預測在開賽後才產生（不列入命中率）」，
 > 並同時公布把賽後場次一起計入的「全部命中率」，避免只看單一數字誤判模型準度。
+> 同一套保護也套用在 `next_predictions.json`（只是寫入的檔案不同）。
 
-### 4.3 `data/history_log.csv`
+### 4.3 `data/next_predictions.json`
+
+「下一個美東賽事日」的預測，欄位格式與 `daily_predictions.json` 完全相同，
+差別只在 `game_date` 是賽程表上的下一個比賽日（由 `--next-day` 產生）。
+
+```bash
+python -m src.main --mode predict --next-day   # 目標日期 = 今天 + 1 天（ET）
+```
+
+用途是**提前一晚就把預測放上頁面**：即使隔天的排程延遲到開打後才執行，
+你仍然可以在「下一賽事日預測」區塊看到該場次的預測（不用等當天那趟成功）。
+
+* 每次 GitHub Actions 排程都會更新（`continue-on-error`，失敗不影響當日資料的 commit）。
+* 靜態頁只在「檔案存在且清單非空」時輸出「下一賽事日預測（YYYY-MM-DD ET）」區塊，
+  表格 id 為 `next-predictions-table`，內嵌 JSON 位於 `nba-data` 的 `next` 欄位。
+* 區塊上方會顯示「預測產生於 …（台北）」（`generated_at_taipei`）：排程若延遲，
+  這個時間會比頁面產生時間舊，一眼就看得出來資料有多新。
+
+### 4.4 `data/history_log.csv`
 
 固定欄位順序，以 `(game_date, game_id)` 為唯一鍵 upsert：
 
@@ -393,20 +414,24 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 | 工作流 | 排程（UTC） | 台灣時間 | 內容 |
 | --- | --- | --- | --- |
 | `A - Update Base Ratings` | `0 7 * * *` | 15:00 | 更新 `team_ratings.json` + 重建靜態頁 |
-| `B - Daily Injury & Prediction` | `0 6,9,12 * * *` | 14:00 / 17:00 / 20:00 | 早班：傷病 + 賽前預測 + 賽果回填 + 重建靜態頁 |
-| `B - Daily Injury & Prediction` | `0 11 * * *` | 19:00 | 主執行：同上（美東約 06:00） |
-| `B - Daily Injury & Prediction` | `30 22 * * *` | 隔日 06:30 | 備援／回填：若當天已存在賽前預測則不覆蓋，並用 `--next-day` 產生隔日預測 |
+| `B - Daily Injury & Prediction` | `0 13,15 * * *` | 21:00 / 23:00 | 傷病 + 賽前／隔日預測 + 賽果回填 + 重建靜態頁（對應台北隔日 02:00–05:00 開打的週末場次） |
+| `B - Daily Injury & Prediction` | `0 17,19,21 * * *` | 01:00 / 03:00 / 05:00 | 傷病 + 賽前預測 + 賽果回填 + 重建靜態頁（對應台北當日 06:00–11:00 開打的場次） |
+| `B - Daily Injury & Prediction` | `30 22 * * *` | 隔日 06:30 | 開打前最後保險：若當天已存在賽前預測則不覆蓋，並補一次隔日預測 |
 
-* GitHub 排程常有 4–10 小時延遲，因此一天排多趟（美東約 01:00 / 04:00 / 06:00 / 07:00）；
+* 時段是「以台北開賽時間回推」的：cron 一律 UTC（工作流裡的 `TZ: Asia/Taipei`
+  只影響程式執行時的時區，**不影響 cron**），台北 = UTC+8。
+  要在台北 06:00–11:00 開打前看到預測，排程就得落在台北 01:00–05:00；
+  週末場次常在台北隔日 02:00–05:00 開打，因此再加台北 21:00 / 23:00 兩趟。
+* GitHub 排程常有 1–10 小時延遲，甚至整個時段被跳過，所以一天排多趟；
   只要有任何一趟在開打前成功，`history_log.csv` 就會留下賽前預測，命中率的分母才不會失真。
   真的延遲到開打後才跑，程式會標記 `post_game` 並保留既有的賽前預測
   （整份賽後→沿用舊檔；只開打部分場次→逐場保留該場次的賽前預測）。
+* 每一趟都會先跑 `--mode predict --next-day`，把**下一個美東賽事日**的預測寫進
+  `data/next_predictions.json`（`continue-on-error`，失敗不影響當天資料的 commit），
+  靜態頁因此多一個「下一賽事日預測」區塊：**即使隔天那趟延遲到開打後才跑，
+  你前一晚就已經看得到預測**。`daily_predictions.json` 仍只放當天賽程，首頁不會被隔日賽程蓋掉。
 * 每次執行先 `--mode predict`，再用 `--mode settle` 獨立回填賽果（`if: always()`，
   預測步驟失敗也會補賽果），最後才重建靜態頁並 commit。
-* 晚班（`30 22 * * *`）會在當日預測**之前**先跑一次 `--mode predict --next-day` 產生**隔日**預測：
-  即使隔天早班延遲到開打後，`history_log.csv` 也已經有一筆賽前預測可以計分
-  （`continue-on-error`，失敗不影響當天資料的 commit；最後寫回 `daily_predictions.json`
-  的仍是當天賽程，首頁不會被隔日賽程蓋掉）。手動觸發時可勾選 `next_day` 重現同樣行為。
 * `--mode predict` 如果在開賽後才落地，log 會印出「n/m 場在開賽後才產生預測（最晚落後 k 分鐘）」，
   並在 Actions 上以 `::warning::` 標註（`main._warn_late_predictions`），排程延遲不必等到看頁面才發現。
 * 兩者共用 `concurrency: nba-data-write`，避免同時改寫 `data/`。
@@ -454,7 +479,7 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 python -m unittest discover -s tests -t . -v
 ```
 
-80 個離線測試（不需網路、不需 pandas）涵蓋：
+84 個離線測試（不需網路、不需 pandas）涵蓋：
 
 * EMA、收縮、25–75 夾限、`base_rating = 50 + expected_margin`
 * 傷病影響佔比、姓名正規化與同姓球員比對、狀態嚴重度、12 分上限
@@ -470,7 +495,10 @@ python -m unittest discover -s tests -t . -v
 * 賽前／賽後判定（`post_game`、`lead_time_minutes`）、賽後預測不覆蓋賽前預測（整份沿用＋逐場保留）、命中率排除賽後預測（含舊資料以 `predicted_at` 推算、缺 `result_correct` 時用比分重算、缺 `predicted_winner` 且缺 `result_correct` 的列不計分）、`post_game` 補寫回 CSV 的冪等性
 * 傷病快照寫入、快照失敗不影響預測、`--mode predict` 在「有傷兵但無球員數據」時仍能產出扣分
 * 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計（賽前／全部雙指標、逐日「賽後排除」欄）、產出頁面不含合併衝突標記且 `id="nba-data"` 只出現一次、「即時更新」按鈕與 `page_generated_at`
-* `--next-day` 的日期位移（`settle` 模式會被拒絕）、預測在開賽後落地時的 log 警告與 `::warning::` 標註、
+* `--next-day` 的日期位移（`settle` 模式會被拒絕）、`--next-day` 寫入 `data/next_predictions.json`
+  且**不覆蓋** `daily_predictions.json`（仍照常寫入 `history_log.csv`）、頁面「下一賽事日預測」區塊
+  （表格 id `next-predictions-table`、缺檔或無賽事時不輸出、內嵌 `next` JSON）、預測產生時間（台北）顯示、
+  預測在開賽後落地時的 log 警告與 `::warning::` 標註、
   「近 N 個賽事日賽前預測比例」的統計與顏色門檻、預測區塊標題在內容不是當天時改顯示日期
 
 ---
@@ -478,6 +506,8 @@ python -m unittest discover -s tests -t . -v
 ## 8. 注意事項
 
 * **日期以美東時間（ET）為準**：`--date` 與 `game_date` 都是 ET；台北時間請自行 +13 小時（夏令時 +12）。
+* `data/next_predictions.json` 是「下一賽事日」的快照，日期也是 ET；頁面同時標示台北開賽時間與
+  「預測產生於 …（台北）」。若排程連續失敗，這個檔案會停在舊日期，看產生時間即可判斷資料新鮮度。
 * Windows 需要 `tzdata`（已列入 `requirements.txt`）。若系統缺少時區資料，程式會退回固定 UTC 位移，但跨日光節約時間可能不準。
 * `stats.nba.com` 有速率限制：內建 3 次重試與 5/10 秒退避；API 回應快取 6 小時（`.cache/`）。
 * `stats.nba.com` 若被 Akamai 封鎖（GitHub Actions 常見），系統會自動改用 ESPN 備援，並在 `data_source` 標成 `espn`；此時 `ORtg / DRtg / Pace` 是逐場比分換算的代理值。

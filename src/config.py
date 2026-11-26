@@ -26,6 +26,8 @@ CACHE_DIR = BASE_DIR / ".cache"
 
 TEAM_RATINGS_PATH = DATA_DIR / "team_ratings.json"
 DAILY_PREDICTIONS_PATH = DATA_DIR / "daily_predictions.json"
+#: 「下一個美東賽事日」的預測（``--next-day``），讓使用者在開賽前就看得到。
+NEXT_PREDICTIONS_PATH = DATA_DIR / "next_predictions.json"
 HISTORY_LOG_PATH = DATA_DIR / "history_log.csv"
 
 

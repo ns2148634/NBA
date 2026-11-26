@@ -3,6 +3,7 @@
 只讀 ``data/`` 既有產出、不連網、不依賴 pandas：
 
 * ``data/daily_predictions.json`` -> 今日預測
+* ``data/next_predictions.json``  -> 下一賽事日預測（開賽前一定看得到）
 * ``data/team_ratings.json``      -> 30 隊戰力排行
 * ``data/history_log.csv``        -> 近期命中率（重用 :func:`rating_engine.read_history`）
 
@@ -430,9 +431,14 @@ def _winner_probability(game: dict) -> str:
     return _pct(value)
 
 
-def _render_predictions(predictions: dict | None) -> str:
+def _render_predictions(
+    predictions: dict | None,
+    *,
+    table_id: str = "predictions-table",
+    source_name: str = "data/daily_predictions.json",
+) -> str:
     if not predictions:
-        return _empty_panel("尚無預測資料（data/daily_predictions.json）。")
+        return _empty_panel(f"尚無預測資料（{source_name}）。")
 
     games = [dict(game) for game in (predictions.get("predictions") or [])]
     game_date = str(predictions.get("game_date") or "")
@@ -449,6 +455,10 @@ def _render_predictions(predictions: dict | None) -> str:
     injury_report = predictions.get("injury_report") or {}
     source = str(injury_report.get("source") or "").strip()
     report_bits: list[str] = []
+    # 預測產生的時間（台北）：排程若延遲，這裡會比頁面產生時間舊，一眼就看得出來。
+    predicted_at = _short_timestamp(predictions.get("generated_at_taipei"))
+    if predicted_at:
+        report_bits.append(f"預測產生於 {_esc(predicted_at)}（台北）")
     if injury_report.get("available"):
         report_bits.append(
             "傷兵名單：ESPN 備援" if source == "espn" else "傷病報告：已取得"
@@ -499,7 +509,7 @@ def _render_predictions(predictions: dict | None) -> str:
         [
             f'<p class="meta">{" · ".join(report_bits)}</p>',
             '<div class="scroll">',
-            '  <table id="predictions-table">',
+            f'  <table id="{table_id}">',
             "    <thead><tr>"
             '<th>開賽（ET / 台北）</th><th>對戰（客 @ 主）</th>'
             '<th class="num">預測比分</th><th class="num">預測贏家</th><th>信心</th>'
@@ -511,6 +521,29 @@ def _render_predictions(predictions: dict | None) -> str:
             "  </table>",
             "</div>",
         ]
+    )
+
+def _next_predictions_heading(payload: dict | None) -> str:
+    """「下一賽事日」區塊標題；標明美東日期，避免和「今日預測」混淆。"""
+    game_date = str((payload or {}).get("game_date") or "").strip()
+    if not game_date:
+        return "下一賽事日預測"
+    return f"下一賽事日預測（{_esc(game_date)} ET）"
+
+
+def _render_next_predictions(payload: dict | None) -> str:
+    """下一賽事日的預測（沒有資料或當日無賽事時回傳空字串，不輸出區塊）。"""
+    games = [
+        game
+        for game in (payload or {}).get("predictions") or []
+        if game.get("game_id")
+    ]
+    if not games:
+        return ""
+    return _render_predictions(
+        payload,
+        table_id="next-predictions-table",
+        source_name="data/next_predictions.json",
     )
 
 
@@ -846,7 +879,12 @@ def _render_footer(moment: datetime) -> str:
 
 
 
-def _embed_json(predictions: dict | None, ratings: dict | None, moment: datetime) -> str:
+def _embed_json(
+    predictions: dict | None,
+    ratings: dict | None,
+    moment: datetime,
+    next_predictions: dict | None = None,
+) -> str:
     """內嵌精簡 JSON，方便用程式取用（不含傷兵明細，控制檔案大小）。"""
     prediction_fields = (
         "game_id",
@@ -891,6 +929,14 @@ def _embed_json(predictions: dict | None, ratings: dict | None, moment: datetime
             {field: team.get(field) for field in team_fields}
             for team in _team_list(ratings)
         ],
+        "next": {
+            "game_date": (next_predictions or {}).get("game_date"),
+            "generated_at_taipei": (next_predictions or {}).get("generated_at_taipei"),
+            "predictions": [
+                {field: game.get(field) for field in prediction_fields}
+                for game in (next_predictions or {}).get("predictions") or []
+            ],
+        },
     }
     blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     # 內嵌在 <script> 裡：把所有 < > & 轉成 \u003c 等 JSON 跳脫，避免提前結束標籤
@@ -912,6 +958,7 @@ def _render_html(
     predictions: dict | None,
     history_rows: Sequence[dict] | None,
     moment: datetime,
+    next_predictions: dict | None = None,
 ) -> str:
     summary = summarize_history(history_rows)
 
@@ -921,12 +968,20 @@ def _render_html(
             if str(item).strip() and item not in warnings:
                 warnings.append(item)
 
+    next_body = _render_next_predictions(next_predictions)
+    next_blocks = (
+        [f"<h2>{_next_predictions_heading(next_predictions)}</h2>", next_body]
+        if next_body
+        else []
+    )
+
     sections = "\n".join(
         [
             _render_header(predictions, ratings, moment),
             _render_warnings(warnings),
             f"<h2>{_predictions_heading(predictions, moment)}</h2>",
             _render_predictions(predictions),
+            *next_blocks,
             "<h2>球隊戰力排行</h2>",
             _render_ratings(ratings),
             "<h2>預測命中率</h2>",
@@ -951,7 +1006,7 @@ def _render_html(
             '  <main class="wrap">',
             sections,
             "  </main>",
-            _embed_json(predictions, ratings, moment),
+            _embed_json(predictions, ratings, moment, next_predictions),
             _refresh_script(),
             "</body>",
             "</html>",
@@ -965,9 +1020,14 @@ def build_site(
     ratings_path: str | Path | None = None,
     predictions_path: str | Path | None = None,
     history_path: str | Path | None = None,
+    next_predictions_path: str | Path | None = None,
     generated_at: datetime | None = None,
 ) -> Path:
     """讀取 ``data/`` 後寫出靜態頁面，回傳輸出路徑。
+
+    ``next_predictions_path`` 指向「下一賽事日」的預測檔（預設
+    ``data/next_predictions.json``）；檔案不存在或當日無賽事時，頁面就不會有
+    「下一賽事日預測」區塊。
 
     產生頁面前會先把舊資料缺漏的 ``post_game`` 標記補寫回 ``history_log.csv``
     （idempotent），讓命中率的「賽前／賽後」判定固定下來；補寫失敗（例如唯讀
@@ -975,6 +1035,9 @@ def build_site(
     """
     ratings = _load_json(Path(ratings_path or config.TEAM_RATINGS_PATH))
     predictions = _load_json(Path(predictions_path or config.DAILY_PREDICTIONS_PATH))
+    next_predictions = _load_json(
+        Path(next_predictions_path or config.NEXT_PREDICTIONS_PATH)
+    )
     history_target = Path(history_path or config.HISTORY_LOG_PATH)
     try:
         rating_engine.fill_missing_post_game_flags(history_target)
@@ -983,15 +1046,18 @@ def build_site(
     history_rows = rating_engine.read_history(history_target)
     moment = generated_at or config.now_utc()
 
-    document = _render_html(ratings, predictions, history_rows, moment)
+    document = _render_html(
+        ratings, predictions, history_rows, moment, next_predictions
+    )
     target = Path(index_path or SITE_INDEX_PATH)
     _atomic_write(target, document)
 
     LOGGER.info(
-        "靜態頁面已更新：%s（%d 隊 / %d 場 / %.1f KB）",
+        "靜態頁面已更新：%s（%d 隊 / 今日 %d 場 / 下一賽事日 %d 場 / %.1f KB）",
         target,
         len(_team_list(ratings)),
         len((predictions or {}).get("predictions") or []),
+        len((next_predictions or {}).get("predictions") or []),
         len(document.encode("utf-8")) / 1024.0,
     )
     return target
@@ -1005,6 +1071,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--index", default=None, help="輸出的 index.html 路徑（預設 docs/index.html）")
     parser.add_argument("--ratings", default=None, help="team_ratings.json 路徑")
     parser.add_argument("--predictions", default=None, help="daily_predictions.json 路徑")
+    parser.add_argument(
+        "--next-predictions", default=None, help="next_predictions.json 路徑"
+    )
     parser.add_argument("--history", default=None, help="history_log.csv 路徑")
     parser.add_argument(
         "--log-level",
@@ -1027,6 +1096,7 @@ def main(argv: list[str] | None = None) -> int:
             args.index,
             ratings_path=args.ratings,
             predictions_path=args.predictions,
+            next_predictions_path=args.next_predictions,
             history_path=args.history,
         )
     except OSError as exc:

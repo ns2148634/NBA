@@ -1026,12 +1026,17 @@ class MainFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             predictions_path = directory / "daily_predictions.json"
+            next_predictions_path = directory / "next_predictions.json"
             with mock.patch.object(
                 config, "TEAM_RATINGS_PATH", directory / "team_ratings.json"
             ), mock.patch.object(
                 config, "DAILY_PREDICTIONS_PATH", predictions_path
             ), mock.patch.object(
-                config, "HISTORY_LOG_PATH", directory / "history_log.csv"
+                config, "NEXT_PREDICTIONS_PATH", next_predictions_path
+            ), mock.patch.object(
+                config,
+                "HISTORY_LOG_PATH",
+                directory / "history_log.csv",
             ), mock.patch.object(
                 fetch_stats, "fetch_all_team_stats", return_value=_stats_payload()
             ), mock.patch.object(
@@ -1067,9 +1072,109 @@ class MainFlowTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             # --next-day 把目標日期往後推一天（ET 11-17 → 11-18）
             self.assertEqual(str(games_mock.call_args[0][1]), "2026-11-18")
-            payload = json.loads(predictions_path.read_text(encoding="utf-8"))
+            # 隔日預測寫進獨立檔案，不覆蓋當日預測
+            self.assertFalse(predictions_path.exists())
+            payload = json.loads(next_predictions_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["game_date"], "2026-11-18")
             self.assertEqual(payload["games_count"], 1)
+            # 命中率照樣記錄：隔天開打前就已有一筆賽前預測
+            rows = rating_engine.read_history(directory / "history_log.csv")
+            self.assertEqual([row["game_id"] for row in rows], ["0022600994"])
+            self.assertEqual(rows[0]["game_date"], "2026-11-18")
+            self.assertEqual(rows[0]["post_game"], "false")
+
+    def test_next_day_does_not_overwrite_daily_predictions(self) -> None:
+        next_game = {
+            "game_id": "0022600994",
+            "game_date": "2026-11-18",
+            "game_time_et": "19:30",
+            "game_time_taipei": "2026-11-19T08:30+08:00",
+            "home_team": "BOS",
+            "away_team": "NYK",
+            "home_rest_days": 1,
+            "away_rest_days": 1,
+            "home_b2b": False,
+            "away_b2b": False,
+            "is_neutral": False,
+            "status": 1,
+        }
+        today_payload = {
+            "schema_version": config.SCHEMA_VERSION,
+            "season": "2026-27",
+            "game_date": "2026-11-17",
+            "generated_at_taipei": "2026-11-17T09:00:00+08:00",
+            "games_count": 0,
+            "warnings": [],
+            "predictions": [],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            predictions_path = directory / "daily_predictions.json"
+            next_predictions_path = directory / "next_predictions.json"
+            predictions_path.write_text(
+                json.dumps(today_payload, ensure_ascii=False), encoding="utf-8"
+            )
+            with mock.patch.object(
+                config, "TEAM_RATINGS_PATH", directory / "team_ratings.json"
+            ), mock.patch.object(
+                config, "DAILY_PREDICTIONS_PATH", predictions_path
+            ), mock.patch.object(
+                config, "NEXT_PREDICTIONS_PATH", next_predictions_path
+            ), mock.patch.object(
+                config, "HISTORY_LOG_PATH", directory / "history_log.csv"
+            ), mock.patch.object(
+                fetch_stats, "fetch_all_team_stats", return_value=_stats_payload()
+            ), mock.patch.object(
+                fetch_stats,
+                "fetch_games_for_date",
+                return_value={"games": [next_game], "schedule": [], "warnings": []},
+            ), mock.patch.object(
+                fetch_stats, "fetch_team_game_log", return_value=[]
+            ), mock.patch.object(
+                fetch_injuries,
+                "fetch_injuries",
+                return_value={
+                    "source": "test",
+                    "available": False,
+                    "warnings": [],
+                    "by_team": {},
+                },
+            ):
+                exit_code = main_module.main(
+                    [
+                        "--mode",
+                        "predict",
+                        "--date",
+                        "2026-11-17",
+                        "--next-day",
+                        "--season",
+                        "2026-27",
+                        "--log-level",
+                        "ERROR",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            today = json.loads(predictions_path.read_text(encoding="utf-8"))
+            self.assertEqual(today["game_date"], "2026-11-17")
+            self.assertEqual(today["generated_at_taipei"], "2026-11-17T09:00:00+08:00")
+            self.assertEqual(today["games_count"], 0)
+            tomorrow = json.loads(next_predictions_path.read_text(encoding="utf-8"))
+            self.assertEqual(tomorrow["game_date"], "2026-11-18")
+            self.assertEqual(tomorrow["games_count"], 1)
+
+    def test_prediction_target_path_follows_next_day_flag(self) -> None:
+        daily = main_module.parse_args(["--mode", "predict"])
+        upcoming = main_module.parse_args(["--mode", "predict", "--next-day"])
+        self.assertEqual(
+            main_module._prediction_target_path(daily), config.DAILY_PREDICTIONS_PATH
+        )
+        self.assertEqual(
+            main_module._prediction_target_path(upcoming), config.NEXT_PREDICTIONS_PATH
+        )
+        self.assertEqual(
+            main_module._prediction_target_path(None), config.DAILY_PREDICTIONS_PATH
+        )
 
     def test_next_day_rejected_in_settle_mode(self) -> None:
         exit_code = main_module.main(
@@ -1852,6 +1957,17 @@ def _site_predictions_payload(away_name: str = "Orlando Magic") -> dict:
 
 
 class SiteBuildTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # 預設的「下一賽事日」檔案指向暫存路徑，避免測試讀到 repo 內的真實資料。
+        self._temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._temp.cleanup)
+        self.next_predictions_path = Path(self._temp.name) / "next_predictions.json"
+        patcher = mock.patch.object(
+            config, "NEXT_PREDICTIONS_PATH", self.next_predictions_path
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_build_site_renders_predictions_and_ratings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -1884,6 +2000,69 @@ class SiteBuildTests(unittest.TestCase):
             self.assertIn("資料提醒", html)
             self.assertIn('id="nba-data"', html)
             self.assertIn("尚無已回填賽果", html)
+            # 顯示「預測產生時間（台北）」，排程延遲時一眼看得出資料有多新
+            self.assertIn("預測產生於 2026-11-17 08:54（台北）", html)
+            # 沒有 next_predictions.json 時不輸出「下一賽事日」區塊
+            self.assertNotIn("下一賽事日預測", html)
+            self.assertNotIn('id="next-predictions-table"', html)
+
+    def test_build_site_renders_next_day_section(self) -> None:
+        next_payload = _site_predictions_payload()
+        next_payload["game_date"] = "2026-11-18"
+        next_payload["generated_at_taipei"] = "2026-11-17T22:30:00+08:00"
+        next_payload["predictions"][0]["game_date"] = "2026-11-18"
+        next_payload["predictions"][0]["game_id"] = "401909995"
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            predictions_path = directory / "daily_predictions.json"
+            predictions_path.write_text(
+                json.dumps(_site_predictions_payload(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+            # 走預設路徑（config.NEXT_PREDICTIONS_PATH）驗證 wiring
+            self.next_predictions_path.write_text(
+                json.dumps(next_payload, ensure_ascii=False), encoding="utf-8"
+            )
+            html = build_site_module.build_site(
+                directory / "index.html",
+                ratings_path=directory / "missing_ratings.json",
+                predictions_path=predictions_path,
+                history_path=directory / "missing_history.csv",
+                generated_at=datetime(2026, 11, 17, 14, 0, tzinfo=config.TZ_ET),
+            ).read_text(encoding="utf-8")
+
+        self.assertIn("下一賽事日預測（2026-11-18 ET）", html)
+        self.assertEqual(html.count("下一賽事日預測"), 1)
+        self.assertIn('id="next-predictions-table"', html)
+        self.assertEqual(html.count('id="predictions-table"'), 1)
+        self.assertEqual(html.count('id="nba-data"'), 1)
+        self.assertIn("預測產生於 2026-11-17 22:30（台北）", html)
+        embedded = json.loads(
+            html.split('id="nba-data">', 1)[1].split("</script>", 1)[0]
+        )
+        self.assertEqual(embedded["next"]["game_date"], "2026-11-18")
+        self.assertEqual(len(embedded["next"]["predictions"]), 1)
+        self.assertEqual(embedded["meta"]["game_date"], "2026-11-17")
+
+    def test_build_site_omits_next_day_section_without_games(self) -> None:
+        payload = _site_predictions_payload()
+        payload["game_date"] = "2026-11-18"
+        payload["predictions"] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.next_predictions_path.write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+            )
+            html = build_site_module.build_site(
+                directory / "index.html",
+                ratings_path=directory / "missing_ratings.json",
+                predictions_path=directory / "missing_predictions.json",
+                history_path=directory / "missing_history.csv",
+            ).read_text(encoding="utf-8")
+
+        # 隔日沒有賽事（或檔案過舊只剩空清單）就不輸出區塊，連標題都不要
+        self.assertNotIn("下一賽事日預測", html)
+        self.assertNotIn('id="next-predictions-table"', html)
 
     def test_build_site_adds_realtime_refresh_button(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,16 +1,21 @@
 name: B - Daily Injury & Prediction
 
-# 排程 B：抓取官網傷病報告並產出當日預測。
-# 一天跑多趟（UTC 06/09/12 → 美東 01/04/07，UTC 11 → 美東 06:00），只要有一趟
-#   在開打前成功，就能保住「賽前預測」；UTC 22:30（台北隔日 06:30）作為備援與賽果回填，
-#   並用 --next-day 順便產生「隔日」預測：隔天即使早班延遲或失敗，也已經有賽前預測。
-# GitHub 的 schedule 常延遲 4–10 小時，多時段 + 提前一晚可大幅降低「預測在開賽後才產生」的機率。
+# 排程 B：抓取官網傷病報告，產出「當日」與「下一賽事日」預測。
+# 時段以「台北開賽時間」回推（cron 一律 UTC，台北 = UTC+8）：
+#   UTC 13/15   → 台北 21:00 / 23:00，服務「台北隔日 02:00–05:00」開打的週末場次；
+#   UTC 17/19/21→ 台北 01:00 / 03:00 / 05:00，服務「台北當日 06:00–11:00」開打的場次
+#                 （延遲 1–3 小時仍來得及在開打前落地）；
+#   UTC 22:30   → 台北隔日 06:30，開打前最後一趟（備援）＋賽果回填。
+# GitHub 的 schedule 常延遲 1–10 小時，甚至整個時段被跳過；多時段 + 每一趟都先產生
+#   「下一賽事日」預測（data/next_predictions.json，會顯示在靜態頁），
+#   可大幅降低「預測在開賽後才產生／看不到」的機率。
 # 若當天已有賽前預測，賽後那趟不會用它覆蓋（main._should_keep_pre_game）。
-# 產出：data/daily_predictions.json、data/history_log.csv（必要時一併刷新 team_ratings.json）
+# 產出：data/daily_predictions.json、data/next_predictions.json、
+#   data/history_log.csv（必要時一併刷新 team_ratings.json）
 on:
   schedule:
-    - cron: "0 6,9,12 * * *"
-    - cron: "0 11 * * *"
+    - cron: "0 13,15 * * *"
+    - cron: "0 17,19,21 * * *"
     - cron: "30 22 * * *"
   workflow_dispatch:
     inputs:
@@ -18,11 +23,6 @@ on:
         description: "比賽日期（美東時間 YYYY-MM-DD，留空代表今天）"
         required: false
         default: ""
-      next_day:
-        description: "同時產生下一個美東賽事日的預測（等同晚班行為）"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -64,12 +64,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 晚班（UTC 22:30）先產生「隔日」預測：隔天即使早班延遲或失敗，
-      # history_log.csv 也已經有一筆賽前預測，正式命中率的分母才不會失真。
-      # 放在當日預測之前，最後寫進 daily_predictions.json 的仍是「今天」的賽程，
-      # 首頁不會在晚上突然被隔日賽程蓋掉。失敗不影響 commit（continue-on-error）。
+      # 每一趟都先產生「下一個美東賽事日」的預測，寫進 data/next_predictions.json：
+      # 靜態頁會多一個「下一賽事日預測」區塊，即使隔天排程延遲到開打後才跑，
+      # 你也能在前一晚就查到預測。失敗不影響 commit（continue-on-error），
+      # 最後寫進 daily_predictions.json 的仍是「今天」的賽程，首頁不會被隔日賽程蓋掉。
       - name: Generate next-day predictions
-        if: github.event.schedule == '30 22 * * *' || inputs.next_day == true
         continue-on-error: true
         env:
           PYTHONUNBUFFERED: "1"
