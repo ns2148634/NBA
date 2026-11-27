@@ -3,14 +3,14 @@
   "season": "2026-27",
   "data_source": "espn",
   "game_date": "2026-11-27",
-  "generated_at": "2026-11-27T00:53:13+00:00",
-  "generated_at_taipei": "2026-11-27T08:53:13+08:00",
+  "generated_at": "2026-11-27T04:23:35+00:00",
+  "generated_at_taipei": "2026-11-27T12:23:35+08:00",
   "ratings_generated_at": "2026-11-26T17:32:51+00:00",
   "injury_report": {
     "source": "nbainjuries",
     "available": true,
-    "report_timestamp_et": "2026-11-26T19:45-05:00",
-    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-26_07_45PM.pdf",
+    "report_timestamp_et": "2026-11-26T23:15-05:00",
+    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-26_11_15PM.pdf",
     "warnings": [
       "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（482 人）。"
     ]
@@ -166,9 +166,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1387
+      "lead_time_minutes": 1176
     },
     {
       "game_id": "401909327",
@@ -329,9 +329,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1417
+      "lead_time_minutes": 1206
     },
     {
       "game_id": "401909328",
@@ -492,9 +492,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1417
+      "lead_time_minutes": 1206
     },
     {
       "game_id": "401909329",
@@ -681,9 +681,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1417
+      "lead_time_minutes": 1206
     },
     {
       "game_id": "401909330",
@@ -870,9 +870,9 @@
         "away_rest_adjustment": 0.75,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1447
+      "lead_time_minutes": 1236
     },
     {
       "game_id": "401909331",
@@ -1085,9 +1085,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1477
+      "lead_time_minutes": 1266
     },
     {
       "game_id": "401909332",
@@ -1196,9 +1196,9 @@
         "away_rest_adjustment": 0.25,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1507
+      "lead_time_minutes": 1296
     },
     {
       "game_id": "401909333",
@@ -1320,9 +1320,9 @@
         "away_rest_adjustment": 0.5,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1537
+      "lead_time_minutes": 1326
     },
     {
       "game_id": "401909334",
@@ -1496,9 +1496,9 @@
         "away_rest_adjustment": 0.25,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1537
+      "lead_time_minutes": 1326
     },
     {
       "game_id": "401909335",
@@ -1515,24 +1515,90 @@
       "away_team_name": "New Orleans Pelicans",
       "home_rating": 41.79,
       "away_rating": 38.42,
-      "home_injury_deduction": 0.0,
+      "home_injury_deduction": 0.45,
       "away_injury_deduction": 1.6,
-      "home_effective_rating": 41.79,
+      "home_effective_rating": 41.34,
       "away_effective_rating": 36.82,
       "home_rest_days": 1,
       "away_rest_days": 3,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": 7.07,
-      "predicted_home_score": 121.9,
-      "predicted_away_score": 114.8,
-      "predicted_total": 236.6,
-      "home_win_prob": 0.7221,
-      "away_win_prob": 0.2779,
+      "predicted_margin": 6.62,
+      "predicted_home_score": 121.5,
+      "predicted_away_score": 114.9,
+      "predicted_total": 236.4,
+      "home_win_prob": 0.7094,
+      "away_win_prob": 0.2906,
       "predicted_winner": "LAC",
       "predicted_winner_name": "LA Clippers",
       "confidence": "medium",
-      "home_injuries": [],
+      "home_injuries": [
+        {
+          "player": "Beal, Bradley",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Right Knee Injury Management",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        },
+        {
+          "player": "Miller, Jordan",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Left Rotator Cuff Surgery",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.0095,
+          "matched": true,
+          "match_score": 0.9,
+          "deduction": 0.1
+        },
+        {
+          "player": "Martinelli, Nick",
+          "status": "questionable",
+          "status_raw": "Questionable",
+          "reason": "G League - Two-Way",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 0.45,
+          "impact_share": 0.0034,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 0.02
+        },
+        {
+          "player": "Christie, Cam",
+          "status": "questionable",
+          "status_raw": "Questionable",
+          "reason": "G League - Two-Way",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 0.45,
+          "impact_share": 0.0018,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 0.01
+        },
+        {
+          "player": "Pickett, Jalen",
+          "status": "questionable",
+          "status_raw": "Questionable",
+          "reason": "G League - Two-Way",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 0.45,
+          "impact_share": 0.0031,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 0.01
+        }
+      ],
       "away_injuries": [
         {
           "player": "Murray, Dejounte",
@@ -1619,9 +1685,9 @@
         "away_rest_adjustment": 0.5,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1537
+      "lead_time_minutes": 1326
     },
     {
       "game_id": "401909336",
@@ -1639,22 +1705,22 @@
       "home_rating": 55.68,
       "away_rating": 48.64,
       "home_injury_deduction": 1.76,
-      "away_injury_deduction": 0.0,
+      "away_injury_deduction": 2.82,
       "home_effective_rating": 53.92,
-      "away_effective_rating": 48.64,
+      "away_effective_rating": 45.82,
       "home_rest_days": 1,
       "away_rest_days": 1,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": 7.88,
-      "predicted_home_score": 115.9,
-      "predicted_away_score": 108.0,
-      "predicted_total": 223.8,
-      "home_win_prob": 0.7443,
-      "away_win_prob": 0.2557,
+      "predicted_margin": 10.7,
+      "predicted_home_score": 116.6,
+      "predicted_away_score": 105.9,
+      "predicted_total": 222.4,
+      "home_win_prob": 0.8137,
+      "away_win_prob": 0.1863,
       "predicted_winner": "POR",
       "predicted_winner_name": "Portland Trail Blazers",
-      "confidence": "medium",
+      "confidence": "high",
       "home_injuries": [
         {
           "player": "Morant, Ja",
@@ -1709,16 +1775,69 @@
           "deduction": 0.11
         }
       ],
-      "away_injuries": [],
+      "away_injuries": [
+        {
+          "player": "Curry, Stephen",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Right Oblique Tear",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.1813,
+          "matched": true,
+          "match_score": 1.0,
+          "deduction": 1.89
+        },
+        {
+          "player": "Butler III, Jimmy",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Right ACL Repair / Surgery",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        },
+        {
+          "player": "Moody, Moses",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Left Patellar Tendon Repair / Surgery",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        },
+        {
+          "player": "Porzingis, Kristaps",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Not With Team",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        }
+      ],
       "factors": {
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.6,
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T00:53:13+00:00",
+      "generated_at": "2026-11-27T04:23:35+00:00",
       "post_game": false,
-      "lead_time_minutes": 1537
+      "lead_time_minutes": 1326
     }
   ]
 }
