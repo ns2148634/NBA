@@ -3,21 +3,22 @@
   "season": "2026-27",
   "data_source": "espn",
   "game_date": "2026-11-27",
-  "generated_at": "2026-11-27T21:45:15+00:00",
-  "generated_at_taipei": "2026-11-28T05:45:15+08:00",
+  "generated_at": "2026-11-28T00:19:08+00:00",
+  "generated_at_taipei": "2026-11-28T08:19:08+08:00",
   "ratings_generated_at": "2026-11-27T17:15:09+00:00",
   "injury_report": {
     "source": "nbainjuries",
     "available": true,
-    "report_timestamp_et": "2026-11-27T16:45-05:00",
-    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-27_04_45PM.pdf",
+    "report_timestamp_et": "2026-11-27T19:15-05:00",
+    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-27_07_15PM.pdf",
     "warnings": [
       "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（482 人）。"
     ]
   },
   "games_count": 11,
   "warnings": [
-    "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（482 人）。"
+    "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（482 人）。",
+    "2026-11-27 有 1 場在開賽後才執行，已保留先前的賽前預測（賽果仍會回填）。"
   ],
   "predictions": [
     {
@@ -259,7 +260,7 @@
           "player": "Prince, Taurean",
           "status": "out",
           "status_raw": "Out",
-          "reason": "Injury/Illness - Right Arthroscopy",
+          "reason": "Injury/Illness - Right Knee Arthroscopy",
           "category": "injury",
           "source": "nbainjuries",
           "severity": 1.0,
@@ -342,9 +343,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 165
+      "lead_time_minutes": 11
     },
     {
       "game_id": "401909328",
@@ -361,20 +362,20 @@
       "away_team_name": "Philadelphia 76ers",
       "home_rating": 46.79,
       "away_rating": 50.66,
-      "home_injury_deduction": 2.93,
-      "away_injury_deduction": 2.85,
-      "home_effective_rating": 43.86,
-      "away_effective_rating": 47.81,
+      "home_injury_deduction": 2.75,
+      "away_injury_deduction": 2.4,
+      "home_effective_rating": 44.04,
+      "away_effective_rating": 48.26,
       "home_rest_days": 3,
       "away_rest_days": 1,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": -0.85,
+      "predicted_margin": -1.12,
       "predicted_home_score": 112.9,
-      "predicted_away_score": 113.7,
-      "predicted_total": 226.6,
-      "home_win_prob": 0.4718,
-      "away_win_prob": 0.5282,
+      "predicted_away_score": 114.0,
+      "predicted_total": 227.0,
+      "home_win_prob": 0.4628,
+      "away_win_prob": 0.5372,
       "predicted_winner": "PHI",
       "predicted_winner_name": "Philadelphia 76ers",
       "confidence": "low",
@@ -393,17 +394,17 @@
           "deduction": 2.04
         },
         {
-          "player": "Oubre Jr., Kelly",
-          "status": "questionable",
-          "status_raw": "Questionable",
-          "reason": "Injury/Illness - Right Hand Laceration",
+          "player": "McConnell, T.J.",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Left Hamstring Injury Management",
           "category": "injury",
           "source": "nbainjuries",
-          "severity": 0.45,
-          "impact_share": 0.0702,
+          "severity": 1.0,
+          "impact_share": 0.0311,
           "matched": true,
           "match_score": 1.0,
-          "deduction": 0.33
+          "deduction": 0.32
         },
         {
           "player": "Furphy, Johnny",
@@ -419,19 +420,6 @@
           "deduction": 0.31
         },
         {
-          "player": "McConnell, T.J.",
-          "status": "questionable",
-          "status_raw": "Questionable",
-          "reason": "Injury/Illness - Left Hamstring Injury Management",
-          "category": "injury",
-          "source": "nbainjuries",
-          "severity": 0.45,
-          "impact_share": 0.0311,
-          "matched": true,
-          "match_score": 1.0,
-          "deduction": 0.15
-        },
-        {
           "player": "Sheppard, Ben",
           "status": "out",
           "status_raw": "Out",
@@ -443,19 +431,6 @@
           "matched": true,
           "match_score": 1.0,
           "deduction": 0.08
-        },
-        {
-          "player": "Nance Jr., Larry",
-          "status": "probable",
-          "status_raw": "Probable",
-          "reason": "Injury/Illness - Right Ankle Bruise",
-          "category": "injury",
-          "source": "nbainjuries",
-          "severity": 0.15,
-          "impact_share": 0.0156,
-          "matched": true,
-          "match_score": 1.0,
-          "deduction": 0.02
         }
       ],
       "away_injuries": [
@@ -473,17 +448,17 @@
           "deduction": 1.57
         },
         {
-          "player": "Embiid, Joel",
-          "status": "questionable",
-          "status_raw": "Questionable",
-          "reason": "Injury/Illness - Illness",
+          "player": "Wade, Dean",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "Injury/Illness - Left Hamstring Injury Management",
           "category": "injury",
           "source": "nbainjuries",
-          "severity": 0.45,
-          "impact_share": 0.1564,
+          "severity": 1.0,
+          "impact_share": 0.0494,
           "matched": true,
           "match_score": 1.0,
-          "deduction": 0.73
+          "deduction": 0.51
         },
         {
           "player": "Hukporti, Ariel",
@@ -497,19 +472,6 @@
           "matched": false,
           "match_score": 0.0,
           "deduction": 0.31
-        },
-        {
-          "player": "Wade, Dean",
-          "status": "questionable",
-          "status_raw": "Questionable",
-          "reason": "Injury/Illness - Left Hamstring Injury Management",
-          "category": "injury",
-          "source": "nbainjuries",
-          "severity": 0.45,
-          "impact_share": 0.0494,
-          "matched": true,
-          "match_score": 1.0,
-          "deduction": 0.23
         }
       ],
       "factors": {
@@ -518,9 +480,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 165
+      "lead_time_minutes": 11
     },
     {
       "game_id": "401909329",
@@ -537,20 +499,20 @@
       "away_team_name": "Brooklyn Nets",
       "home_rating": 47.34,
       "away_rating": 41.83,
-      "home_injury_deduction": 3.68,
+      "home_injury_deduction": 3.62,
       "away_injury_deduction": 2.01,
-      "home_effective_rating": 43.66,
+      "home_effective_rating": 43.72,
       "away_effective_rating": 39.82,
       "home_rest_days": 3,
       "away_rest_days": 1,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": 6.94,
-      "predicted_home_score": 115.1,
+      "predicted_margin": 7.0,
+      "predicted_home_score": 115.2,
       "predicted_away_score": 108.2,
-      "predicted_total": 223.3,
-      "home_win_prob": 0.7185,
-      "away_win_prob": 0.2815,
+      "predicted_total": 223.4,
+      "home_win_prob": 0.7202,
+      "away_win_prob": 0.2798,
       "predicted_winner": "TOR",
       "predicted_winner_name": "Toronto Raptors",
       "confidence": "medium",
@@ -606,19 +568,6 @@
           "matched": false,
           "match_score": 0.0,
           "deduction": 0.31
-        },
-        {
-          "player": "Martin, Alijah",
-          "status": "questionable",
-          "status_raw": "Questionable",
-          "reason": "Injury/Illness - Left Knee Soreness",
-          "category": "injury",
-          "source": "nbainjuries",
-          "severity": 0.45,
-          "impact_share": 0.0134,
-          "matched": true,
-          "match_score": 1.0,
-          "deduction": 0.06
         },
         {
           "player": "Smith, Malachi",
@@ -707,9 +656,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 165
+      "lead_time_minutes": 11
     },
     {
       "game_id": "401909330",
@@ -727,19 +676,19 @@
       "home_rating": 59.82,
       "away_rating": 54.17,
       "home_injury_deduction": 1.06,
-      "away_injury_deduction": 2.54,
+      "away_injury_deduction": 2.7,
       "home_effective_rating": 58.76,
-      "away_effective_rating": 51.63,
+      "away_effective_rating": 51.47,
       "home_rest_days": 2,
       "away_rest_days": 4,
       "home_b2b": false,
       "away_b2b": false,
-      "predicted_margin": 9.23,
+      "predicted_margin": 9.39,
       "predicted_home_score": 113.0,
-      "predicted_away_score": 103.8,
-      "predicted_total": 216.8,
-      "home_win_prob": 0.7791,
-      "away_win_prob": 0.2209,
+      "predicted_away_score": 103.7,
+      "predicted_total": 216.7,
+      "home_win_prob": 0.783,
+      "away_win_prob": 0.217,
       "predicted_winner": "BOS",
       "predicted_winner_name": "Boston Celtics",
       "confidence": "high",
@@ -825,6 +774,19 @@
           "deduction": 0.33
         },
         {
+          "player": "Castro, Rafael",
+          "status": "out",
+          "status_raw": "Out",
+          "reason": "G League - Two-Way",
+          "category": "injury",
+          "source": "nbainjuries",
+          "severity": 1.0,
+          "impact_share": 0.03,
+          "matched": false,
+          "match_score": 0.0,
+          "deduction": 0.31
+        },
+        {
           "player": "Gueye, Mouhamed",
           "status": "out",
           "status_raw": "Out",
@@ -851,30 +813,17 @@
           "deduction": 0.31
         },
         {
-          "player": "Castro, Rafael",
-          "status": "doubtful",
-          "status_raw": "Doubtful",
-          "reason": "G League - Two-Way",
-          "category": "injury",
-          "source": "nbainjuries",
-          "severity": 0.75,
-          "impact_share": 0.03,
-          "matched": false,
-          "match_score": 0.0,
-          "deduction": 0.23
-        },
-        {
           "player": "Wilson, Jalen",
-          "status": "doubtful",
-          "status_raw": "Doubtful",
+          "status": "out",
+          "status_raw": "Out",
           "reason": "G League - Two-Way",
           "category": "injury",
           "source": "nbainjuries",
-          "severity": 0.75,
+          "severity": 1.0,
           "impact_share": 0.03,
           "matched": false,
           "match_score": 0.0,
-          "deduction": 0.23
+          "deduction": 0.31
         },
         {
           "player": "Newell, Asa",
@@ -896,9 +845,9 @@
         "away_rest_adjustment": 0.75,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 195
+      "lead_time_minutes": 41
     },
     {
       "game_id": "401909331",
@@ -1111,9 +1060,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 225
+      "lead_time_minutes": 71
     },
     {
       "game_id": "401909332",
@@ -1235,9 +1184,9 @@
         "away_rest_adjustment": 0.25,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 255
+      "lead_time_minutes": 101
     },
     {
       "game_id": "401909333",
@@ -1345,9 +1294,9 @@
         "away_rest_adjustment": 0.5,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 285
+      "lead_time_minutes": 131
     },
     {
       "game_id": "401909334",
@@ -1534,9 +1483,9 @@
         "away_rest_adjustment": 0.25,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 285
+      "lead_time_minutes": 131
     },
     {
       "game_id": "401909335",
@@ -1723,9 +1672,9 @@
         "away_rest_adjustment": 0.5,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 285
+      "lead_time_minutes": 131
     },
     {
       "game_id": "401909336",
@@ -1899,9 +1848,9 @@
         "away_rest_adjustment": 0.0,
         "pace": 113.25
       },
-      "generated_at": "2026-11-27T21:45:15+00:00",
+      "generated_at": "2026-11-28T00:19:08+00:00",
       "post_game": false,
-      "lead_time_minutes": 285
+      "lead_time_minutes": 131
     }
   ]
 }
