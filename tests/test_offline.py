@@ -2240,7 +2240,7 @@ class SiteBuildTests(unittest.TestCase):
             ],
         )
 
-    def test_build_site_reports_pre_game_and_all_accuracy(self) -> None:
+    def test_build_site_counts_every_settled_game(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             history_path = directory / "history_log.csv"
@@ -2252,14 +2252,15 @@ class SiteBuildTests(unittest.TestCase):
                 history_path=history_path,
             ).read_text(encoding="utf-8")
 
-        # 已回填 5 場，只有 2 場是賽前預測（2/2 命中）；含賽後則是 3/5 命中。
+        # 已回填 5 場全部計入（3/5 = 60%）；賽前 2 場全中只是參考值。
         self.assertIn("5</b>已回填場次", html)
-        self.assertIn("2</b>計入命中率", html)
+        self.assertIn("60.0%</b>命中率（全部計入）", html)
         self.assertIn("100.0%</b>賽前預測命中率", html)
-        self.assertIn("60.0%</b>全部命中率", html)
         self.assertIn("近 2 個賽事日命中率", html)
-        self.assertIn("賽後排除", html)
+        self.assertIn("其中賽後", html)
         self.assertIn("全數賽後", html)
+        self.assertNotIn("賽後排除", html)
+        self.assertNotIn("不列入", html)
 
     def test_build_site_contains_no_merge_markers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -2330,7 +2331,7 @@ class PostGameGuardTests(unittest.TestCase):
         row = rating_engine.prediction_to_history_row(prediction)
         self.assertEqual(row["post_game"], "true")
 
-    def test_summarize_history_excludes_post_game_rows(self) -> None:
+    def test_summarize_history_counts_post_game_rows(self) -> None:
         rows = [
             {
                 "game_date": "2026-11-17",
@@ -2350,9 +2351,15 @@ class PostGameGuardTests(unittest.TestCase):
             },
         ]
         summary = build_site_module.summarize_history(rows)
-        self.assertEqual(summary["total_settled"], 1)
-        self.assertEqual(summary["post_game_excluded"], 1)
+        # 賽後預測不再被排除：兩場都進分母，賽後場次另以 post_game_* 統計。
+        self.assertEqual(summary["settled_rows"], 2)
+        self.assertEqual(summary["total_settled"], 2)
+        self.assertEqual(summary["total_correct"], 2)
         self.assertAlmostEqual(summary["accuracy"], 1.0)
+        self.assertEqual(summary["post_game_rows"], 1)
+        self.assertEqual(summary["pre_game_settled"], 1)
+        self.assertEqual(summary["days"][0]["total"], 2)
+        self.assertEqual(summary["days"][0]["post_game"], 1)
 
     def test_legacy_rows_without_flag_use_predicted_at(self) -> None:
         rows = [
@@ -2374,9 +2381,13 @@ class PostGameGuardTests(unittest.TestCase):
             },
         ]
         summary = build_site_module.summarize_history(rows)
-        self.assertEqual(summary["post_game_excluded"], 1)
-        self.assertEqual(summary["total_settled"], 1)
-        self.assertAlmostEqual(summary["accuracy"], 0.0)
+        # 舊資料用 predicted_at 推算：1 場賽後、1 場賽前，兩場都計入命中率。
+        self.assertEqual(summary["post_game_rows"], 1)
+        self.assertEqual(summary["pre_game_settled"], 1)
+        self.assertEqual(summary["total_settled"], 2)
+        self.assertAlmostEqual(summary["accuracy"], 0.5)
+        self.assertAlmostEqual(summary["post_game_accuracy"], 1.0)
+        self.assertAlmostEqual(summary["pre_game_accuracy"], 0.0)
 
     def test_is_predicted_after_tipoff_handles_missing_fields(self) -> None:
         self.assertTrue(
@@ -2493,7 +2504,7 @@ class PostGameGuardTests(unittest.TestCase):
 
         self.assertIsNotNone(message)
         self.assertIn("1/1", message)
-        self.assertIn("不列入正式命中率", message)
+        self.assertIn("仍會計入命中率", message)
         warning.assert_called_once()
         # GitHub Actions 只解析 stdout 的 workflow command，不能用 logger（走 stderr）
         printed.assert_called_once()
@@ -2513,6 +2524,118 @@ class PostGameGuardTests(unittest.TestCase):
                 main_module._warn_late_predictions({"game_date": "2026-11-19"})
             )
         warning.assert_not_called()
+
+    def test_any_game_started_detects_tipoff(self) -> None:
+        game = dict(self.game)  # 2026-11-17 19:30 ET = 00:30Z 隔日
+        self.assertFalse(
+            rating_engine.any_game_started(
+                [game], datetime(2026, 11, 17, 12, 0, tzinfo=config.TZ_ET)
+            )
+        )
+        self.assertTrue(
+            rating_engine.any_game_started(
+                [game], datetime(2026, 11, 17, 20, 0, tzinfo=config.TZ_ET)
+            )
+        )
+        # 沒有 game_time_utc 的舊賽程退回用 game_date（ET）判斷
+        moment = datetime(2026, 11, 17, 12, 0, tzinfo=config.TZ_ET)
+        self.assertTrue(
+            rating_engine.any_game_started([{"game_date": "2026-11-16"}], moment)
+        )
+        self.assertFalse(
+            rating_engine.any_game_started([{"game_date": "2026-11-17"}], moment)
+        )
+        self.assertFalse(rating_engine.any_game_started([], moment))
+
+    def test_load_or_refresh_ratings_skips_refresh_after_tipoff(self) -> None:
+        stale = {
+            "season": "2026-27",
+            "generated_at": "2020-01-01T00:00:00+00:00",
+            "data_source": "nba_api",
+        }
+        started = [
+            {
+                "game_date": "2020-01-01",
+                "game_time_utc": "2020-01-02T00:30:00+00:00",  # 早已開打
+            }
+        ]
+        warnings: list[str] = []
+        with mock.patch.object(
+            rating_engine, "load_team_ratings", return_value=stale
+        ), mock.patch.object(main_module, "run_base") as run_base:
+            result = main_module.load_or_refresh_ratings(
+                types.SimpleNamespace(), "2026-27", started, warnings
+            )
+
+        # 開賽後不重算：沿用舊快照，並把原因寫進 warnings 供預測檔使用
+        self.assertIs(result, stale)
+        run_base.assert_not_called()
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("沿用舊快照", warnings[0])
+
+    def test_load_or_refresh_ratings_recomputes_before_tipoff(self) -> None:
+        stale = {"season": "2026-27", "generated_at": "2020-01-01T00:00:00+00:00"}
+        recomputed = dict(stale, data_source="recomputed")
+        upcoming = [
+            {
+                "game_date": "2099-01-01",
+                "game_time_utc": "2099-01-02T00:30:00+00:00",  # 還沒開打
+            }
+        ]
+        args = types.SimpleNamespace()
+        with mock.patch.object(
+            rating_engine, "load_team_ratings", return_value=stale
+        ), mock.patch.object(
+            main_module, "run_base", return_value=recomputed
+        ) as run_base:
+            result = main_module.load_or_refresh_ratings(args, "2026-27", upcoming)
+
+        self.assertIs(result, recomputed)
+        run_base.assert_called_once_with(args, "2026-27")
+
+    def test_append_rating_warnings_deduplicates(self) -> None:
+        payload = {"warnings": ["既有訊息"]}
+        main_module._append_rating_warnings(payload, ["新訊息", "新訊息"])
+        self.assertEqual(payload["warnings"], ["既有訊息", "新訊息"])
+        # 沒有提醒時完全不動 payload（不要多出空的 warnings 鍵）
+        untouched: dict = {}
+        main_module._append_rating_warnings(untouched, [])
+        self.assertEqual(untouched, {})
+
+    def test_run_predict_fetches_games_before_loading_ratings(self) -> None:
+        games_payload = {"games": [dict(self.game)], "warnings": []}
+        calls: list[str] = []
+        ratings = self.ratings
+
+        def fake_games(*args, **kwargs):
+            calls.append("games")
+            return games_payload
+
+        def fake_ratings(args, season, games=None, warnings=None):
+            calls.append("ratings")
+            # 載入戰力分時必須已經知道當日賽程，才有辦法判斷是否已開打
+            self.assertEqual(len(games or []), 1)
+            if warnings is not None:
+                warnings.append("戰力分沿用舊快照")
+            return ratings
+
+        args = types.SimpleNamespace(
+            season_type="Regular Season",
+            skip_injuries=True,
+            dry_run=True,
+            next_day=False,
+        )
+        with mock.patch.object(
+            fetch_stats, "fetch_games_for_date", side_effect=fake_games
+        ), mock.patch.object(
+            main_module, "load_or_refresh_ratings", side_effect=fake_ratings
+        ):
+            payload = main_module.run_predict(args, "2026-27", date(2026, 11, 17))
+
+        self.assertEqual(calls, ["games", "ratings"])
+        # 戰力分沿用的提醒要寫進預測檔，頁面才看得到
+        self.assertIn("戰力分沿用舊快照", payload["warnings"])
+        self.assertEqual(payload["game_date"], "2026-11-17")
 
 
 class HistorySummaryTests(unittest.TestCase):
@@ -2538,7 +2661,8 @@ class HistorySummaryTests(unittest.TestCase):
         self.assertAlmostEqual(summary["accuracy"], 0.5, places=4)
         self.assertEqual(len(summary["days"]), 1)
         self.assertEqual(summary["days"][0]["date"], "2026-11-16")
-        self.assertEqual(summary["days"][0]["games"], 2)
+        self.assertEqual(summary["days"][0]["total"], 2)
+        self.assertEqual(summary["days"][0]["pre_game"], 2)
 
 
     def test_summarize_history_recomputes_missing_result_correct(self) -> None:
@@ -2575,7 +2699,7 @@ class HistorySummaryTests(unittest.TestCase):
         self.assertEqual(summary["total_correct"], 1)
         self.assertAlmostEqual(summary["accuracy"], 1 / 3, places=4)
 
-    def test_summarize_history_reports_all_and_excluded_totals(self) -> None:
+    def test_summarize_history_reports_all_and_post_game_totals(self) -> None:
         rows = [
             {
                 "game_date": "2026-11-16",
@@ -2603,17 +2727,23 @@ class HistorySummaryTests(unittest.TestCase):
         self.assertEqual(summary["settled_rows"], 3)
         self.assertEqual(summary["all_correct"], 1)
         self.assertAlmostEqual(summary["all_accuracy"], 1 / 3, places=4)
-        self.assertEqual(summary["total_settled"], 1)
+        # 全部場次都是正式命中率的分母
+        self.assertEqual(summary["total_settled"], 3)
         self.assertEqual(summary["total_correct"], 1)
-        self.assertEqual(summary["post_game_excluded"], 2)
-        self.assertEqual(summary["excluded_correct"], 0)
-        # 整日都是賽後預測的日子只出現在 days_all，不會被當成命中率分母
-        self.assertEqual([day["date"] for day in summary["days"]], ["2026-11-16"])
+        self.assertAlmostEqual(summary["accuracy"], 1 / 3, places=4)
+        self.assertEqual(summary["post_game_rows"], 2)
+        self.assertEqual(summary["post_game_correct"], 0)
+        self.assertEqual(summary["pre_game_settled"], 1)
+        self.assertEqual(summary["pre_game_correct"], 1)
+        # 整日都是賽後預測的日子同樣算進命中率，也照樣列在逐日表
+        self.assertEqual(
+            [day["date"] for day in summary["days"]], ["2026-11-17", "2026-11-16"]
+        )
         self.assertEqual(
             [day["date"] for day in summary["days_all"]], ["2026-11-17", "2026-11-16"]
         )
-        self.assertEqual(summary["days_all"][0]["games"], 0)
-        self.assertEqual(summary["days_all"][0]["excluded"], 1)
+        self.assertEqual(summary["days_all"][0]["total"], 1)
+        self.assertEqual(summary["days_all"][0]["post_game"], 1)
 
 
     def test_summarize_history_ignores_rows_without_predicted_winner(self) -> None:
@@ -2658,9 +2788,10 @@ class HistorySummaryTests(unittest.TestCase):
         ]
         summary = build_site_module.summarize_history(rows)
         html = build_site_module._render_history(summary)
-        self.assertIn("0</b>計入命中率", html)
+        # 全是賽後預測的日子仍然計入命中率，只是表格會標記「全數賽後」。
+        self.assertIn("1</b>已回填場次", html)
+        self.assertIn("100.0%</b>命中率（全部計入）", html)
         self.assertIn("全數賽後", html)
-        # 沒有可計分場次時不能吐出「（0/0）」這種看不懂的數字。
         self.assertNotIn("（0/0）", html)
 
     def test_summarize_history_reports_pre_game_ratio_health(self) -> None:

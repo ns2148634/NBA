@@ -183,7 +183,7 @@ def _scoreable(row: dict) -> bool:
 
 
 def _row_post_game(row: dict) -> bool:
-    """該筆預測是否在開賽後才產生（賽後預測不列入命中率）。
+    """該筆預測是否在開賽後才產生（僅作標記，不影響命中率計算）。
 
     舊版 ``history_log.csv`` 沒有 ``post_game`` 欄位，此時用
     ``predicted_at`` 與「比賽日 + 美東開賽時間」推算
@@ -202,15 +202,21 @@ def _row_post_game(row: dict) -> bool:
 def summarize_history(
     rows: Sequence[dict] | None, window: int = RECENT_DAYS_WINDOW
 ) -> dict:
-    """統計已回填賽果的命中率（同時提供「只算賽前」與「全部」兩種）。
+    """統計已回填賽果的命中率（**每一場都計入**，含開賽後才產生的預測）。
 
-    * ``total_settled`` / ``accuracy``：只算**賽前**產生的預測 → 正式命中率。
-    * ``settled_rows`` / ``all_accuracy``：所有已回填場次（含開賽後才產生的預測）。
-    * ``post_game_excluded`` / ``excluded_correct``：被排除的場次與其中命中數。
+    預測模型只吃賽程、傷病與「賽前」的戰力分快照（見 ``main.load_or_refresh_ratings``
+    的開賽後不重算保護），不會看到賽果，因此賽後才產生的預測同樣算數。
+
+    * ``settled_rows`` / ``total_settled`` / ``accuracy``：所有可計分的已回填場次
+      → 正式命中率（``all_*`` 為同意義的別名，保留給舊頁面／舊測試）。
+    * ``pre_game_settled`` / ``pre_game_correct`` / ``pre_game_accuracy``：只算開賽前
+      產生的預測，用來對照「模型在真正的賽前資訊下有多準」。
+    * ``post_game_rows`` / ``post_game_correct`` / ``post_game_accuracy``：開賽後才產生
+      的預測（同樣計入命中率，另行列出供參考）。
     * ``pre_game_ratio`` / ``recent_pre_game_ratio``：賽前預測佔已回填場次的比例
-      （後者只看近 ``window`` 個賽事日，是排程是否健康的指標）。
+      （後者只看近 ``window`` 個賽事日）→ 純粹是**排程延遲指標**，不影響命中率。
     * ``pre_game_health``：``ok`` / ``warn`` / ``bad``（門檻見 :data:`PRE_GAME_RATIO_WARN`）。
-    * ``days``：只含有賽前預測的賽事日；``days_all`` 另含「整日都是賽後預測」的日子。
+    * ``days`` / ``days_all``：每個賽事日的統計（兩者相同，含「整日都是賽後預測」的日子）。
 
     既沒有 ``predicted_winner`` 也沒有 ``result_correct`` 的列無法計分，
     直接排除在統計之外（不該被算成「沒中」而拉低命中率）。
@@ -228,74 +234,85 @@ def summarize_history(
     )
 
     buckets: dict[str, dict] = {}
-    counted_total = 0
-    counted_correct = 0
-    excluded_total = 0
-    excluded_correct = 0
-    all_correct = 0
+    total_correct = 0
+    pre_game_total = 0
+    pre_game_correct = 0
+    post_game_total = 0
+    post_game_correct = 0
     for row in settled_all:
         day = str(row.get("game_date") or "")
         bucket = buckets.setdefault(
             day,
             {
                 "date": day,
-                "games": 0,
-                "correct": 0,
-                "excluded": 0,
-                "excluded_correct": 0,
                 "total": 0,
+                "correct": 0,
+                "pre_game": 0,
+                "pre_game_correct": 0,
+                "post_game": 0,
+                "post_game_correct": 0,
+                "accuracy": 0.0,
             },
         )
-        bucket["total"] += 1
         hit = _is_correct(row)
-        all_correct += int(hit)
-        if _row_post_game(row):
-            bucket["excluded"] += 1
-            bucket["excluded_correct"] += int(hit)
-            excluded_total += 1
-            excluded_correct += int(hit)
-            continue
-        bucket["games"] += 1
+        bucket["total"] += 1
         bucket["correct"] += int(hit)
-        counted_total += 1
-        counted_correct += int(hit)
+        total_correct += int(hit)
+        if _row_post_game(row):
+            bucket["post_game"] += 1
+            bucket["post_game_correct"] += int(hit)
+            post_game_total += 1
+            post_game_correct += int(hit)
+        else:
+            bucket["pre_game"] += 1
+            bucket["pre_game_correct"] += int(hit)
+            pre_game_total += 1
+            pre_game_correct += int(hit)
 
     days_all = sorted(buckets.values(), key=lambda item: item["date"], reverse=True)
     days_all = days_all[: max(int(window), 1)]
     for bucket in days_all:
         bucket["accuracy"] = (
-            bucket["correct"] / bucket["games"] if bucket["games"] else 0.0
+            bucket["correct"] / bucket["total"] if bucket["total"] else 0.0
         )
-    days = [bucket for bucket in days_all if bucket["games"]]
 
-    recent_games = sum(bucket["games"] for bucket in days_all)
+    recent_total = sum(bucket["total"] for bucket in days_all)
     recent_correct = sum(bucket["correct"] for bucket in days_all)
-    recent_rows = sum(bucket["total"] for bucket in days_all)
-    recent_ratio = (recent_games / recent_rows) if recent_rows else 0.0
-    if not recent_rows or recent_ratio >= PRE_GAME_RATIO_WARN:
+    recent_pre_game = sum(bucket["pre_game"] for bucket in days_all)
+    recent_ratio = (recent_pre_game / recent_total) if recent_total else 0.0
+    if not recent_total or recent_ratio >= PRE_GAME_RATIO_WARN:
         health = "ok"
     elif recent_ratio >= PRE_GAME_RATIO_WARN / 2:
         health = "warn"
     else:
         health = "bad"
+    settled = len(settled_all)
+    accuracy = (total_correct / settled) if settled else 0.0
     return {
-        "settled_rows": len(settled_all),
-        "all_correct": all_correct,
-        "all_accuracy": (all_correct / len(settled_all)) if settled_all else 0.0,
-        "total_settled": counted_total,
-        "total_correct": counted_correct,
-        "accuracy": (counted_correct / counted_total) if counted_total else 0.0,
-        "post_game_excluded": excluded_total,
-        "excluded_correct": excluded_correct,
-        "excluded_accuracy": (excluded_correct / excluded_total) if excluded_total else 0.0,
-        "pre_game_ratio": (counted_total / len(settled_all)) if settled_all else 0.0,
-        "recent_games": recent_games,
+        "settled_rows": settled,
+        "all_correct": total_correct,
+        "all_accuracy": accuracy,
+        "total_settled": settled,
+        "total_correct": total_correct,
+        "accuracy": accuracy,
+        # 舊鍵名保留（語意已改為「賽後才產生的列數」，不再排除）
+        "post_game_rows": post_game_total,
+        "post_game_correct": post_game_correct,
+        "post_game_accuracy": (post_game_correct / post_game_total) if post_game_total else 0.0,
+        "post_game_excluded": post_game_total,
+        "excluded_correct": post_game_correct,
+        "excluded_accuracy": (post_game_correct / post_game_total) if post_game_total else 0.0,
+        "pre_game_settled": pre_game_total,
+        "pre_game_correct": pre_game_correct,
+        "pre_game_accuracy": (pre_game_correct / pre_game_total) if pre_game_total else 0.0,
+        "pre_game_ratio": (pre_game_total / settled) if settled else 0.0,
+        "recent_games": recent_total,
         "recent_correct": recent_correct,
-        "recent_accuracy": (recent_correct / recent_games) if recent_games else 0.0,
-        "recent_rows": recent_rows,
+        "recent_accuracy": (recent_correct / recent_total) if recent_total else 0.0,
+        "recent_rows": recent_total,
         "recent_pre_game_ratio": recent_ratio,
         "pre_game_health": health,
-        "days": days,
+        "days": days_all,
         "days_all": days_all,
     }
 
@@ -470,7 +487,7 @@ def _render_predictions(
     if source:
         report_bits.append(f"來源 {_esc(source)}")
     if any(game.get("post_game") for game in games):
-        report_bits.append("部分預測在開賽後才產生（不列入命中率）")
+        report_bits.append("部分預測在開賽後才產生（仍計入命中率）")
 
     body: list[str] = []
     for game in games:
@@ -567,12 +584,14 @@ def _render_history(summary: dict) -> str:
         return _empty_panel("尚無已回填賽果（history_log.csv 的 actual_* 仍為空）。")
 
     settled = int(summary.get("settled_rows") or 0)
-    counted = int(summary.get("total_settled") or 0)
-    counted_correct = int(summary.get("total_correct") or 0)
-    excluded = int(summary.get("post_game_excluded") or 0)
-    all_correct = int(summary.get("all_correct") or 0)
+    correct = int(summary.get("total_correct") or 0)
     accuracy = _pct(summary.get("accuracy"))
-    all_accuracy = _pct(summary.get("all_accuracy"))
+    pre_settled = int(summary.get("pre_game_settled") or 0)
+    pre_correct = int(summary.get("pre_game_correct") or 0)
+    pre_accuracy = _pct(summary.get("pre_game_accuracy"))
+    post_rows = int(summary.get("post_game_rows") or 0)
+    post_correct = int(summary.get("post_game_correct") or 0)
+    post_accuracy = _pct(summary.get("post_game_accuracy"))
     recent_accuracy = _pct(summary.get("recent_accuracy"))
     days_all = summary.get("days_all") or []
     recent_ratio = summary.get("recent_pre_game_ratio") or 0.0
@@ -582,9 +601,8 @@ def _render_history(summary: dict) -> str:
         [
             '<div class="stats">',
             f'  <span class="stat"><b>{settled}</b>已回填場次</span>',
-            f'  <span class="stat"><b>{counted}</b>計入命中率</span>',
-            f'  <span class="stat"><b>{accuracy}</b>賽前預測命中率</span>',
-            f'  <span class="stat"><b>{all_accuracy}</b>全部命中率</span>',
+            f'  <span class="stat"><b>{accuracy}</b>命中率（全部計入）</span>',
+            f'  <span class="stat"><b>{pre_accuracy}</b>賽前預測命中率（參考）</span>',
             f'  <span class="stat"><b>{recent_accuracy}</b>'
             f"近 {len(days_all)} 個賽事日命中率</span>",
             f'  <span class="stat"><b class="{_esc(health)}">{_pct(recent_ratio)}</b>'
@@ -593,51 +611,49 @@ def _render_history(summary: dict) -> str:
         ]
     )
 
-    if counted:
-        notes = [
-            '<p class="sub">「賽前預測命中率」只計開賽前產生的預測'
-            f"（{counted_correct}/{counted}），是正式對外的數字。</p>"
-        ]
-    else:
-        notes = [
-            '<p class="sub">目前回填的場次全是開賽後才產生的預測，'
-            "還沒有可計分的賽前預測。</p>"
-        ]
-    if excluded:
+    notes = [
+        '<p class="sub">「命中率（全部計入）」把每一場已回填賽果都算進分母'
+        f"（{correct}/{settled}）：模型只吃賽程、傷病與賽前戰力分快照，"
+        "開賽後才產生的預測也看不到賽果，因此不排除。</p>"
+    ]
+    if pre_settled:
         notes.append(
-            f'<p class="sub">另有 {excluded} 場的預測是開賽後才產生（排程延遲），'
-            "已排除在上述命中率之外；若把它們也計入，"
-            f"「全部命中率」為 {all_correct}/{settled}（{all_accuracy}），僅供參考。</p>"
+            f'<p class="sub">其中 {pre_settled} 場在開賽前產生（{pre_correct} 中，'
+            f"{pre_accuracy}）：這是最嚴格的「賽前預測力」參考數字。</p>"
         )
-    if any(int(day.get("games") or 0) == 0 for day in days_all):
+    if post_rows:
         notes.append(
-            '<p class="sub">標示「全數賽後」的賽事日，當天所有預測都在開賽後才產生，'
-            "因此不列入命中率。</p>"
+            f'<p class="sub">另有 {post_rows} 場是開賽後才產生（{post_correct} 中，'
+            f"{post_accuracy}）：同樣計入上面的命中率，只在表格標記供參考。</p>"
+        )
+    if any(int(day.get("post_game") or 0) == int(day.get("total") or 0) for day in days_all):
+        notes.append(
+            '<p class="sub">標示「全數賽後」的賽事日，代表當天的預測全部在開賽後才產生，'
+            "同樣計入命中率；這是排程延遲的指標，不是排除條件。</p>"
         )
     if health != "ok":
         notes.append(
             f'<p class="sub note-warn">近 {len(days_all)} 個賽事日只有 '
             f"{_pct(recent_ratio)} 的預測在開賽前產生"
             f"（目標 ≥ {_pct(PRE_GAME_RATIO_WARN)}）；"
-            "多半是 GitHub 排程延遲，命中率的分母因此偏小。</p>"
+            "多半是 GitHub 排程延遲，僅供觀察排程健康度，不影響命中率。</p>"
         )
 
     rows = []
     for day in days_all:
-        games = int(day.get("games") or 0)
         total = int(day.get("total") or 0)
-        excluded_day = int(day.get("excluded") or 0)
+        post_day = int(day.get("post_game") or 0)
+        pre_day = int(day.get("pre_game") or 0)
         settled_cell = _esc(total)
-        if not games and excluded_day:
+        if total and not pre_day:
             settled_cell += '<br><span class="sub">全數賽後</span>'
         rows.append(
             "        <tr>"
             f"<td>{_esc(day.get('date'))}</td>"
             f'<td class="num">{settled_cell}</td>'
-            f'<td class="num">{_esc(games)}</td>'
-            f'<td class="num">{_esc(day.get("correct")) if games else "—"}</td>'
-            f'<td class="num">{_pct(day.get("accuracy")) if games else "—"}</td>'
-            f'<td class="num">{_esc(excluded_day)}</td>'
+            f'<td class="num">{_esc(day.get("correct"))}</td>'
+            f'<td class="num">{_pct(day.get("accuracy"))}</td>'
+            f'<td class="num">{_esc(post_day)}</td>'
             "</tr>"
         )
 
@@ -648,8 +664,8 @@ def _render_history(summary: dict) -> str:
             '<div class="scroll">',
             '  <table id="history-table">',
             '    <thead><tr><th>賽事日（ET）</th><th class="num">已回填</th>'
-            '<th class="num">計入</th><th class="num">命中</th>'
-            '<th class="num">命中率</th><th class="num">賽後排除</th></tr></thead>',
+            '<th class="num">命中</th><th class="num">命中率</th>'
+            '<th class="num">其中賽後</th></tr></thead>',
             "    <tbody>",
             *rows,
             "    </tbody>",

@@ -181,8 +181,18 @@ def run_base(args: argparse.Namespace, season: str) -> dict:
     return ratings
 
 
-def load_or_refresh_ratings(args: argparse.Namespace, season: str) -> dict:
-    """優先沿用 26 小時內且賽季相符的戰力分，否則重新計算。"""
+def load_or_refresh_ratings(
+    args: argparse.Namespace,
+    season: str,
+    games: list[dict] | None = None,
+    warnings: list[str] | None = None,
+) -> dict:
+    """優先沿用 26 小時內且賽季相符的戰力分，否則重新計算。
+
+    ``games`` 是當日賽程：一旦有場次已經開球，就**不重算**戰力分
+    （賽果已進入聯盟累積數據，重算等於讓模型偷看答案），改用舊快照並留下 warning。
+    呼叫端可傳 ``warnings`` 收集訊息，最後寫進預測檔的 ``warnings``。
+    """
     ratings = rating_engine.load_team_ratings()
     if ratings is not None:
         age = rating_engine.ratings_age_hours(ratings)
@@ -194,6 +204,25 @@ def load_or_refresh_ratings(args: argparse.Namespace, season: str) -> dict:
                 age,
                 ratings.get("data_source") or "未知",
             )
+            return ratings
+        if same_season and rating_engine.any_game_started(games):
+            age_text = f"{age:.1f}" if age is not None else "未知"
+            day_text = next(
+                (
+                    str(game.get("game_date"))
+                    for game in games or []
+                    if game.get("game_date")
+                ),
+                "",
+            )
+            message = (
+                f"戰力分快照產生於 {ratings.get('generated_at')}"
+                f"（距今 {age_text} 小時），但 {day_text or '當日'}（ET）已有場次開打："
+                "為避免把已結束的賽果算進 Net Rating，本次沿用舊快照、不重新計算。"
+            )
+            LOGGER.warning(message)
+            if warnings is not None:
+                warnings.append(message)
             return ratings
         LOGGER.info(
             "既有戰力分需要更新（season=%s，age=%s 小時）",
@@ -343,7 +372,8 @@ def _settle_history(args: argparse.Namespace, season: str, target_date: date) ->
 def _warn_late_predictions(payload: dict) -> str | None:
     """預測若在開賽後才產生，在 log 與 GitHub Actions 標註警告。
 
-    晚班（排程延遲）最容易發生：落地時當天比賽已開打，這些場次不能列入正式命中率。
+    晚班（排程延遲）最容易發生：落地時當天比賽已開打。這些場次仍會計入命中率
+    （因為模型只吃賽程與戰力分快照，不會看到賽果），但代表排程延遲。
     把落後時間與比例寫進 log，Actions 上也會出現 ``::warning::`` 標註，延遲才看得見。
     """
     games = [game for game in (payload.get("predictions") or []) if game.get("game_id")]
@@ -361,7 +391,7 @@ def _warn_late_predictions(payload: dict) -> str | None:
     message = (
         f"{payload.get('game_date')} 有 {len(late)}/{len(games)} 場在開賽後才產生預測"
         + (f"（最晚落後 {behind} 分鐘）" if behind else "")
-        + "，這些場次不列入正式命中率；請確認排程是否延遲。"
+        + "，仍會計入命中率；請確認排程是否延遲。"
     )
     LOGGER.warning(message)
     if os.environ.get("GITHUB_ACTIONS"):
@@ -369,16 +399,29 @@ def _warn_late_predictions(payload: dict) -> str | None:
     return message
 
 
-def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dict:
-    """產生 data/daily_predictions.json 並 upsert history_log.csv。"""
-    ratings = load_or_refresh_ratings(args, season)
+def _append_rating_warnings(payload: dict, rating_warnings: list[str]) -> None:
+    """把戰力分沿用的提醒寫進預測檔的 ``warnings``（去重）。"""
+    if not rating_warnings:
+        return
+    warnings = payload.setdefault("warnings", [])
+    for message in rating_warnings:
+        if message not in warnings:
+            warnings.append(message)
 
+
+def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dict:
+    """產生 data/daily_predictions.json 並 upsert history_log.csv。
+
+    先抓賽程、再決定要不要更新戰力分：若當日已有場次開打就不重算
+    （賽果已進入聯盟累積數據，重算等於讓模型偷看答案），改用舊快照並留下 warning。
+    """
     try:
         games_payload = fetch_stats.fetch_games_for_date(
             season, target_date, args.season_type
         )
     except fetch_stats.StatsFetchError as exc:
         LOGGER.error("賽程抓取失敗：%s", exc)
+        ratings = load_or_refresh_ratings(args, season)
         payload = rating_engine.build_predictions(
             [],
             ratings,
@@ -399,6 +442,9 @@ def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dic
     games = games_payload.get("games") or []
     LOGGER.info("%s（ET）共有 %d 場比賽。", target_date, len(games))
 
+    rating_warnings: list[str] = []
+    ratings = load_or_refresh_ratings(args, season, games, warnings=rating_warnings)
+
     if not games:
         injuries = {
             "source": "nbainjuries",
@@ -415,6 +461,7 @@ def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dic
             target_date=target_date,
         )
         payload["warnings"].append("當日沒有賽事。")
+        _append_rating_warnings(payload, rating_warnings)
         _persist_predictions(args, payload)
         _warn_late_predictions(payload)
         _log_predictions(payload)
@@ -453,6 +500,7 @@ def run_predict(args: argparse.Namespace, season: str, target_date: date) -> dic
         season=season,
         target_date=target_date,
     )
+    _append_rating_warnings(payload, rating_warnings)
     _persist_predictions(args, payload)
     _warn_late_predictions(payload)
     _log_predictions(payload)

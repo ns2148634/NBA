@@ -97,6 +97,38 @@ def _parse_utc_iso(value: Any) -> datetime | None:
     return moment.astimezone(timezone.utc)
 
 
+def any_game_started(
+    games: Sequence[dict] | None, moment: datetime | None = None
+) -> bool:
+    """賽程中是否已經有場次開球。
+
+    用來避免「預測在開賽後才執行」時重新計算戰力分：一旦當日有比賽開打，
+    聯盟／球隊的累積數據（Net Rating、近 10 場、EMA）就會包含該場賽果，
+    重算等於讓模型偷看答案。
+
+    ``game_time_utc`` 缺漏或格式錯誤時，退回用 ``game_date``（ET）是否早於今天判斷；
+    兩者都沒有資料的場次一律視為「尚未開打」。
+    """
+    now = (moment or config.now_utc()).astimezone(timezone.utc)
+    today_et = now.astimezone(config.TZ_ET).date()
+    for game in games or []:
+        tipoff = _parse_utc_iso(game.get("game_time_utc"))
+        if tipoff is not None:
+            if now >= tipoff:
+                return True
+            continue
+        date_text = str(game.get("game_date") or "").strip()
+        if not date_text:
+            continue
+        try:
+            game_day = date.fromisoformat(date_text)
+        except ValueError:
+            continue
+        if game_day < today_et:
+            return True
+    return False
+
+
 def compute_ema(values: Sequence[float], alpha: float) -> float | None:
     """計算指數移動平均；空序列回傳 ``None``。"""
     if not values:

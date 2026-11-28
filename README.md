@@ -168,6 +168,11 @@ base_rating     = clamp(50 + expected_margin, 25, 75)
 * 少於 10 場會對球季 Net Rating 做線性收縮，避免開季極端值。
 * 完全沒有資料的球隊 → 50 分、`data_quality = "no_games"`。
 
+> **開賽後不重算**：`team_ratings.json` 超過 26 小時沒更新時，`predict` 會先抓當日賽程，
+> 只有在「當日（ET）還沒有任何場次開打」時才重算（`rating_engine.any_game_started`）。
+> 一旦有比賽開打，聯盟累積數據已包含該場賽果，重算等於讓模型偷看答案，
+> 因此改用舊快照，並在 log 與預測檔 `warnings` 留下提示。
+
 ### 3.2 傷病扣分
 
 ```
@@ -356,8 +361,8 @@ total       = clamp(home_points + away_points − 傷病調整, 190, 270)
 > 整份都是賽後時沿用舊檔（`main._should_keep_pre_game`），
 > 只有部分場次開打時則逐場保留（`main._merge_pre_game_rows`），
 > 被保留的場次連 `generated_at` 都維持原值，因此 `predicted_at` 不會變成賽後時間。
-> 賽後預測不計入「賽前預測命中率」，靜態頁會標示「部分預測在開賽後才產生（不列入命中率）」，
-> 並同時公布把賽後場次一起計入的「全部命中率」，避免只看單一數字誤判模型準度。
+> `post_game` 只是**資訊標記**：預測模型只吃賽程、傷病與賽前戰力分快照，看不到賽果，
+> 因此每一場已回填的比賽都會計入命中率；靜態頁另列「賽前預測命中率」當作最嚴格的參考值。
 > 同一套保護也套用在 `next_predictions.json`（只是寫入的檔案不同）。
 
 ### 4.3 `data/next_predictions.json`
@@ -393,7 +398,7 @@ python -m src.main --mode predict --next-day   # 目標日期 = 今天 + 1 天�
 | `home_win_prob`, `away_win_prob`, `predicted_winner` | 預測勝負 |
 | `injury_details_json` | 傷兵明細（compact JSON） |
 | `predicted_at` | 預測產生時間 |
-| `post_game` | `true` = 開賽後才產生的預測（不計入命中率） |
+| `post_game` | `true` = 開賽後才產生的預測（僅為標記，仍計入命中率） |
 | `actual_home_score`, `actual_away_score`, `actual_winner`, `result_correct` | 賽後回填 |
 
 * 重跑預測**不會**覆蓋已回填的 `actual_*` / `result_correct`。
@@ -401,11 +406,12 @@ python -m src.main --mode predict --next-day   # 目標日期 = 今天 + 1 天�
 * 舊資料沒有 `post_game` 欄位時，會用 `predicted_at` 與「比賽日 + `game_time_et`」推算
   （`rating_engine.is_predicted_after_tipoff`）；`build_site` 產生頁面時會把推算結果
   補寫回 CSV（idempotent），之後判定就固定下來。
-* 命中率有兩種算法：`賽前預測命中率` 只算開賽前產生的預測（正式數字），
-  `全部命中率` 連賽後才產生的預測一起算（僅供參考）；兩者都公布，避免分母被誤解。
+* 命中率只有一種算法：**所有已回填賽果的場次都計入**（含開賽後才產生的預測）。
+  賽後預測照樣算數，因為模型只吃賽程、傷病與賽前戰力分快照，看不到賽果；
+  靜態頁另外列出「賽前預測命中率」與逐日「其中賽後」欄位，方便對照賽前資訊下的準度。
 * 靜態頁另外公布「近 7 個賽事日賽前預測比例」（`recent_pre_game_ratio`）：
-  ≥ 80% 顯示綠色、≥ 40% 黃色、其餘紅色，並提示可能是 GitHub 排程延遲，
-  用來一眼判斷命中率的分母是否健康（門檻見 `build_site.PRE_GAME_RATIO_WARN`）。
+  ≥ 80% 顯示綠色、≥ 40% 黃色、其餘紅色，並提示可能是 GitHub 排程延遲；
+  這是**排程健康度指標**，不影響命中率（門檻見 `build_site.PRE_GAME_RATIO_WARN`）。
 
 ---
 
@@ -468,7 +474,8 @@ python -m src.main --mode predict --next-day   # 目標日期 = 今天 + 1 天�
 | 球員場均數據失敗 | 傷兵改用預設影響佔比 0.03 |
 | `ScheduleLeagueV2` 失敗 | 自動改用 `ScoreboardV3` |
 | 當日查無賽事 | 寫出 `games_count = 0` 的預測檔，exit 0 |
-| `team_ratings.json` 過期（> 26 小時）或賽季不符 | 自動先執行 `base` 再預測 |
+| `team_ratings.json` 過期（> 26 小時）或賽季不符，且當日尚無比賽開打 | 自動先執行 `base` 再預測 |
+| `team_ratings.json` 過期但當日已有比賽開打 | 沿用舊快照、不重算（避免把賽果算進 rating），log 與預測檔 `warnings` 會提示 |
 | `data/` 完全沒有可用戰力分且 nba_api 也失效 | exit 1，讓 Actions 標記失敗 |
 
 ---
@@ -492,9 +499,9 @@ python -m unittest discover -s tests -t . -v
 * ESPN 傷兵名單：球隊／日期過濾、狀態正規化、官方報告優先（不呼叫 ESPN）、`ESPN_INJURY_FILL_MISSING_TEAMS` 補漏與去重
 * 輪休分類（`Rest` / `Load Management` 為 `rest`、`Minutes restriction` 不算）與靜態頁「·輪休」標記
 * `history_log.csv` upsert 冪等性、賽果回填、重跑不覆蓋賽果
-* 賽前／賽後判定（`post_game`、`lead_time_minutes`）、賽後預測不覆蓋賽前預測（整份沿用＋逐場保留）、命中率排除賽後預測（含舊資料以 `predicted_at` 推算、缺 `result_correct` 時用比分重算、缺 `predicted_winner` 且缺 `result_correct` 的列不計分）、`post_game` 補寫回 CSV 的冪等性
+* 賽前／賽後判定（`post_game`、`lead_time_minutes`）、賽後預測不覆蓋賽前預測（整份沿用＋逐場保留）、命中率計入所有已回填場次（含舊資料以 `predicted_at` 推算、缺 `result_correct` 時用比分重算、缺 `predicted_winner` 且缺 `result_correct` 的列不計分）、`post_game` 補寫回 CSV 的冪等性、開賽後不重算戰力分（`rating_engine.any_game_started` + `main.load_or_refresh_ratings` 沿用舊快照並寫入 warning）
 * 傷病快照寫入、快照失敗不影響預測、`--mode predict` 在「有傷兵但無球員數據」時仍能產出扣分
-* 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計（賽前／全部雙指標、逐日「賽後排除」欄）、產出頁面不含合併衝突標記且 `id="nba-data"` 只出現一次、「即時更新」按鈕與 `page_generated_at`
+* 靜態頁產生：預測／戰力表渲染、缺檔容錯、HTML 跳脫與 `</script>` 注入防護、命中率統計（全部場次計入＋賽前參考值、逐日「其中賽後」欄）、產出頁面不含合併衝突標記且 `id="nba-data"` 只出現一次、「即時更新」按鈕與 `page_generated_at`
 * `--next-day` 的日期位移（`settle` 模式會被拒絕）、`--next-day` 寫入 `data/next_predictions.json`
   且**不覆蓋** `daily_predictions.json`（仍照常寫入 `history_log.csv`）、頁面「下一賽事日預測」區塊
   （表格 id `next-predictions-table`、缺檔或無賽事時不輸出、內嵌 `next` JSON）、預測產生時間（台北）顯示、
