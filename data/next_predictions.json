@@ -3,14 +3,14 @@
   "season": "2026-27",
   "data_source": "espn",
   "game_date": "2026-11-28",
-  "generated_at": "2026-11-28T00:18:52+00:00",
-  "generated_at_taipei": "2026-11-28T08:18:52+08:00",
+  "generated_at": "2026-11-28T04:03:00+00:00",
+  "generated_at_taipei": "2026-11-28T12:03:00+08:00",
   "ratings_generated_at": "2026-11-27T17:15:09+00:00",
   "injury_report": {
     "source": "nbainjuries",
     "available": true,
-    "report_timestamp_et": "2026-11-27T19:15-05:00",
-    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-27_07_15PM.pdf",
+    "report_timestamp_et": "2026-11-27T23:00-05:00",
+    "report_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-27_11_00PM.pdf",
     "warnings": [
       "stats.nba.com 不可用，球員數據改用 ESPN 場均數據（482 人）。"
     ]
@@ -218,9 +218,9 @@
         "away_rest_adjustment": 0.5,
         "pace": 113.25
       },
-      "generated_at": "2026-11-28T00:18:52+00:00",
+      "generated_at": "2026-11-28T04:03:00+00:00",
       "post_game": false,
-      "lead_time_minutes": 1301
+      "lead_time_minutes": 1077
     },
     {
       "game_id": "401910047",
@@ -242,17 +242,17 @@
       "home_effective_rating": 38.23,
       "away_effective_rating": 41.83,
       "home_rest_days": 2,
-      "away_rest_days": 2,
+      "away_rest_days": 0,
       "home_b2b": false,
-      "away_b2b": false,
-      "predicted_margin": -1.0,
-      "predicted_home_score": 105.9,
-      "predicted_away_score": 106.9,
+      "away_b2b": true,
+      "predicted_margin": 0.45,
+      "predicted_home_score": 106.7,
+      "predicted_away_score": 106.2,
       "predicted_total": 212.9,
-      "home_win_prob": 0.4668,
-      "away_win_prob": 0.5332,
-      "predicted_winner": "BKN",
-      "predicted_winner_name": "Brooklyn Nets",
+      "home_win_prob": 0.515,
+      "away_win_prob": 0.485,
+      "predicted_winner": "CHA",
+      "predicted_winner_name": "Charlotte Hornets",
       "confidence": "low",
       "home_injuries": [
         {
@@ -351,12 +351,12 @@
       "factors": {
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.85,
-        "away_rest_adjustment": 0.25,
+        "away_rest_adjustment": -1.2,
         "pace": 113.25
       },
-      "generated_at": "2026-11-28T00:18:52+00:00",
+      "generated_at": "2026-11-28T04:03:00+00:00",
       "post_game": false,
-      "lead_time_minutes": 1361
+      "lead_time_minutes": 1137
     },
     {
       "game_id": "401910048",
@@ -378,15 +378,15 @@
       "home_effective_rating": 45.53,
       "away_effective_rating": 46.79,
       "home_rest_days": 2,
-      "away_rest_days": 4,
+      "away_rest_days": 0,
       "home_b2b": false,
-      "away_b2b": false,
-      "predicted_margin": 0.84,
-      "predicted_home_score": 119.8,
-      "predicted_away_score": 118.9,
+      "away_b2b": true,
+      "predicted_margin": 2.79,
+      "predicted_home_score": 120.7,
+      "predicted_away_score": 118.0,
       "predicted_total": 238.7,
-      "home_win_prob": 0.5279,
-      "away_win_prob": 0.4721,
+      "home_win_prob": 0.5919,
+      "away_win_prob": 0.4081,
       "predicted_winner": "CHI",
       "predicted_winner_name": "Chicago Bulls",
       "confidence": "low",
@@ -487,12 +487,12 @@
       "factors": {
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.85,
-        "away_rest_adjustment": 0.75,
+        "away_rest_adjustment": -1.2,
         "pace": 113.25
       },
-      "generated_at": "2026-11-28T00:18:52+00:00",
+      "generated_at": "2026-11-28T04:03:00+00:00",
       "post_game": false,
-      "lead_time_minutes": 1481
+      "lead_time_minutes": 1257
     },
     {
       "game_id": "401910049",
@@ -513,16 +513,16 @@
       "away_injury_deduction": 3.87,
       "home_effective_rating": 40.31,
       "away_effective_rating": 47.22,
-      "home_rest_days": 2,
+      "home_rest_days": 0,
       "away_rest_days": 2,
-      "home_b2b": false,
+      "home_b2b": true,
       "away_b2b": false,
-      "predicted_margin": -4.31,
-      "predicted_home_score": 109.9,
-      "predicted_away_score": 114.2,
+      "predicted_margin": -5.76,
+      "predicted_home_score": 109.2,
+      "predicted_away_score": 115.0,
       "predicted_total": 224.2,
-      "home_win_prob": 0.3597,
-      "away_win_prob": 0.6403,
+      "home_win_prob": 0.3156,
+      "away_win_prob": 0.6844,
       "predicted_winner": "OKC",
       "predicted_winner_name": "Oklahoma City Thunder",
       "confidence": "medium",
@@ -622,13 +622,13 @@
       ],
       "factors": {
         "home_court_advantage": 2.6,
-        "home_rest_adjustment": 2.85,
+        "home_rest_adjustment": 1.4,
         "away_rest_adjustment": 0.25,
         "pace": 113.25
       },
-      "generated_at": "2026-11-28T00:18:52+00:00",
+      "generated_at": "2026-11-28T04:03:00+00:00",
       "post_game": false,
-      "lead_time_minutes": 1481
+      "lead_time_minutes": 1257
     },
     {
       "game_id": "401910050",
@@ -650,15 +650,15 @@
       "home_effective_rating": 56.4,
       "away_effective_rating": 50.66,
       "home_rest_days": 2,
-      "away_rest_days": 2,
+      "away_rest_days": 0,
       "home_b2b": false,
-      "away_b2b": false,
-      "predicted_margin": 8.34,
-      "predicted_home_score": 118.6,
-      "predicted_away_score": 110.3,
+      "away_b2b": true,
+      "predicted_margin": 9.79,
+      "predicted_home_score": 119.3,
+      "predicted_away_score": 109.5,
       "predicted_total": 228.9,
-      "home_win_prob": 0.7565,
-      "away_win_prob": 0.2435,
+      "home_win_prob": 0.7927,
+      "away_win_prob": 0.2073,
       "predicted_winner": "HOU",
       "predicted_winner_name": "Houston Rockets",
       "confidence": "high",
@@ -707,12 +707,12 @@
       "factors": {
         "home_court_advantage": 2.6,
         "home_rest_adjustment": 2.85,
-        "away_rest_adjustment": 0.25,
+        "away_rest_adjustment": -1.2,
         "pace": 113.25
       },
-      "generated_at": "2026-11-28T00:18:52+00:00",
+      "generated_at": "2026-11-28T04:03:00+00:00",
       "post_game": false,
-      "lead_time_minutes": 1511
+      "lead_time_minutes": 1287
     }
   ]
 }
